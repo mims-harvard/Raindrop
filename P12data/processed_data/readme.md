@@ -10,7 +10,7 @@ Run following scripts in turn:
 * /process_scripts/
   * ParseData.py : generate arr\_outcomes.npy, ts\_params.npy, static\_params.npy, and P\_list.npy
   * IrregularSampling.py: generate: extended\_static\_params.npy, PTdict\_list.npy
-  * Generate\_splitID.py: generate phy12\_splitX.npy where X range from 1 to 5. Only contains the IDs. Train/val/test =  9:1:1
+  * Generate\_splitID.py: generate phy12\_splitX.npy where X range from 1 to 5. Only contains the IDs. Train/val/test =  8:1:1
 
 Note: PTdict\_list.npy and arr\_outcomes.npy are the most important files.
 
