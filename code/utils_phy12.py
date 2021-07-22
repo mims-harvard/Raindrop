@@ -162,7 +162,7 @@ def getStats_static(P_tensor):
     # ['Age' 'Gender=0' 'Gender=1' 'Height' 'ICUType=1' 'ICUType=2' 'ICUType=3' 'ICUType=4' 'Weight']
     bool_categorical = [0, 1, 1, 0, 1, 1, 1, 1, 0]
     for s in range(S):
-        if bool_categorical == 0:  # if not categorical
+        if bool_categorical[s] == 0:  # if not categorical
             vals_s = Ps[s, :]
             vals_s = vals_s[vals_s > 0]
             ms[s] = np.mean(vals_s)
