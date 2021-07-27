@@ -3,6 +3,8 @@
 #
 # Author: Theodoros Tsiligkaridis
 # Last updated: May 19 2021
+import time
+
 import numpy as np
 
 import torch
@@ -84,7 +86,7 @@ MAX = 100
 
 n_runs = 1  # change this from 1 to 1, in order to save debugging time.
 n_splits = 5  # change this from 5 to 1, in order to save debugging time.
-subset = False  # use subset for better debugging in local PC, which only contains 1200 patients
+subset = True  # use subset for better debugging in local PC, which only contains 1200 patients
 
 acc_arr = np.zeros((n_splits, n_runs))
 auprc_arr = np.zeros((n_splits, n_runs))
@@ -252,7 +254,8 @@ for k in range(n_splits):
             if epoch ==0 or epoch % 1 == 0:
                 with torch.no_grad():
                     out_val = evaluate_standard(model, Pval_tensor, Pval_time_tensor, Pval_static_tensor)
-                    out_val = torch.squeeze(torch.sigmoid(out_val))
+                    # out_val = torch.squeeze(torch.sigmoid(out_val))
+                    out_val = torch.squeeze(nn.functional.softmax(out_val))
                     out_val = out_val.detach().cpu().numpy()
 
                     # denoms = np.sum(np.exp(out_val), axis=1).reshape((-1, 1))

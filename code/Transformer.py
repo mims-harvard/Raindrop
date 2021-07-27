@@ -6,8 +6,8 @@ import torch.nn.functional as F
 
 from torch.nn.parameter import Parameter
 
-"""import HGT"""
-from pyHGT.conv import *
+# """import HGT"""
+# from pyHGT.conv import *
 
 
 # class PositionalEncoding0(nn.Module):
@@ -230,6 +230,9 @@ class TransformerModel2(nn.Module):
         # feed through MLP
         output = self.mlp(output)  # two linears: 64-->64-->2
         return output
+
+
+'''
 
 class HGT_latconcat(nn.Module):
     ""
@@ -962,3 +965,6 @@ class Raindrop(nn.Module):
         # output = self.mlp(output)  # two linears: 64-->64-->2
 
         return output
+        
+'''
+
