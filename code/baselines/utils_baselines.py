@@ -191,6 +191,39 @@ def normalize_static(X_static):
     return X_static
 
 
+def upsampling(X_train, upsampling_factor):
+    """
+    Sampling of minority class by multiplying the samples of the minority class.
+
+    :param X_train: (X_features_train, X_static_train, X_time_train, y_train)
+    :param upsampling_factor: upsampling of minority class by desired integer factor in train set
+    :return: (X_features_train, X_static_train, X_time_train, y_train) upsampled with minority class and shuffled
+    """
+    X_features_train, X_static_train, X_time_train, y_train = X_train
+
+    upsampled_features = []
+    upsampled_static = []
+    upsampled_time = []
+    for i in range(len(X_features_train)):
+        if y_train[i] == 1:  # if minority class
+            upsampled_features.append(np.array(X_features_train[i]))
+            upsampled_static.append(np.array(X_static_train[i]))
+            upsampled_time.append(np.array(X_time_train[i]))
+    for i in range(upsampling_factor - 1):
+        X_features_train = torch.cat((X_features_train, torch.from_numpy(np.array(upsampled_features))), 0)
+        X_static_train = torch.cat((X_static_train, torch.from_numpy(np.array(upsampled_static))), 0)
+        X_time_train = torch.cat((X_time_train, torch.from_numpy(np.array(upsampled_time))), 0)
+        y_train = torch.cat((y_train, torch.from_numpy(np.ones(len(upsampled_features)))))  # positive class
+
+    # shuffle samples
+    permuted_idx = torch.randperm(X_features_train.shape[0])
+    X_features_train = X_features_train[permuted_idx].view(X_features_train.size())
+    X_static_train = X_static_train[permuted_idx].view(X_static_train.size())
+    X_time_train = X_time_train[permuted_idx].view(X_time_train.size())
+    y_train = y_train[permuted_idx].view(y_train.size()).type(torch.LongTensor)
+
+    return X_features_train, X_static_train, X_time_train, y_train
+
 if __name__ == '__main__':
     """
     P12 data (11988 samples):

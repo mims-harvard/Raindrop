@@ -6,6 +6,8 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from utils_baselines import *
+from sklearn.metrics import roc_auc_score
+from sklearn.metrics import average_precision_score
 
 
 def number_parameters(model):
@@ -79,7 +81,7 @@ class Transformer_P12(nn.Module):
         """
         Initialize the model instance.
 
-        :param d_model: dimension of a single sequential instance (number of parameters per instance)
+        :param d_model: dimension of a single sequential instance (number of features per instance)
         :param max_len: maximum length of the sequence (time series)
         :param n_heads: number of attention heads
         :param dim_feedforward: dimension of the feedforward network model
@@ -96,13 +98,18 @@ class Transformer_P12(nn.Module):
         # starting dropout from positional encoding
         self.pos_enc_dropout = nn.Dropout(p=dropout)
 
-        self.encoder_layer = nn.TransformerEncoderLayer(d_model=d_model, nhead=n_heads, dim_feedforward=dim_feedforward,
+        new_d_model = 64
+        self.linear_embedding = nn.Linear(d_model, new_d_model)   # embed 36 features into 64 to be consistent with other baselines
+
+        self.encoder_layer = nn.TransformerEncoderLayer(d_model=new_d_model, nhead=n_heads, dim_feedforward=dim_feedforward,
                                                         dropout=dropout, activation=activation, batch_first=True)
 
+        self.static_feed_forward = nn.Linear(9, 64)     # transform 9 static features to 64-dimensional vector
+
         self.feed_forward = nn.Sequential(
-            nn.Linear((d_model * max_len) + 9, dim_feedforward),   # (215 * 36) + 9 (static features) = 7749
+            nn.Linear(new_d_model, new_d_model),
             nn.ReLU(),
-            nn.Linear(dim_feedforward, 2)
+            nn.Linear(new_d_model, 2)
             # nn.Softmax(dim=1)   # the softmax function is already included in cross-entropy loss
         )
 
@@ -142,76 +149,159 @@ class Transformer_P12(nn.Module):
         # apply dropout for output from positional encoding
         x = self.pos_enc_dropout(X_features)
 
+        # embed 36 features into 64 to be consistent with other baselines
+        x = self.linear_embedding(x)
+
         # pass through transformer encoder layer
         x = self.encoder_layer(x, src_key_padding_mask=mask)
 
-        # concatenate static features to the flattened encoder layer
-        x = torch.flatten(x, start_dim=1, end_dim=2)
-        x = torch.cat((x, X_static), dim=1)
+        # concatenate static features to the matrix (add additional row with the size 64)
+        static_x = self.static_feed_forward(X_static).unsqueeze(1)
+        x = torch.cat((x, static_x), dim=1)
+
+        # take the mean of all time steps (rows) with additional row for static features; output size = (batch_size, 64)
+        x = torch.mean(x, 1)
 
         # pass through fully-connected part to lower dimension to 2 (binary classification)
         return self.feed_forward(x)
 
 
-def train_model(model, X_train, X_val, num_epochs, learning_rate, batch_size):
+def train_test_model(d_model, max_len, n_heads, dim_feedforward, X_train, X_val, X_test, num_runs, num_epochs, learning_rate, batch_size, upsampling_factor=None):
     """
     Train the model.
 
-    :param model: model instance
+    :param d_model: dimension of a single sequential instance (number of features per instance)
+    :param max_len: maximum length of the sequence (time series)
+    :param n_heads: number of attention heads
+    :param dim_feedforward: dimension of the feedforward network model
     :param X_train: (X_features_train, X_static_train, X_time_train, y_train)
     :param X_val: (X_features_val, X_static_val, X_time_val, y_val)
+    :param X_test: (X_features_test, X_static_test, X_time_test, y_test)
+    :param num_runs: number of independent runs
     :param num_epochs: number of epochs
     :param learning_rate: learning rate for optimizer
     :param batch_size: batch size
+    :param upsampling_factor: upsampling of minority class by desired integer factor in train set, default=None (no upsampling)
     :return: None
     """
-    loss_fun = nn.CrossEntropyLoss()
-    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
-
     X_features_train, X_static_train, X_time_train, y_train = X_train
     X_features_val, X_static_val, X_time_val, y_val = X_val
+    X_features_test, X_static_test, X_time_test, y_test = X_test
 
-    print('\n------------------\nTraining started\n------------------')
+    if upsampling_factor is not None:   # upsampling of minority class
+        X_features_train, X_static_train, X_time_train, y_train = upsampling(X_train, upsampling_factor)
+        print('Size after upsampling: ', X_features_train.shape, X_static_train.shape, X_time_train.shape, y_train.shape)
 
-    for epoch in range(num_epochs):
-        model.train()   # set model to the training mode
+    acc_all = []
+    auc_all = []
+    aupr_all = []
+    model_path = 'best_model.pt'
 
-        # todo: batch training - DataLoader?
+    for r in range(num_runs):
 
-        # forward pass
+        model = Transformer_P12(d_model, max_len, n_heads, dim_feedforward, dropout=0.3)
+        model = model.double()
+        if r == 0:
+            print(model)
+            number_parameters(model)
 
-        y_pred = model(X_features_val, X_static_val, X_time_val)   # todo: to train
+        loss_fun = nn.CrossEntropyLoss()
+        optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=0.1,
+                                                               patience=1, threshold=0.0001, threshold_mode='rel',
+                                                               cooldown=0, min_lr=1e-8, eps=1e-08, verbose=True)
 
-        # compute and print loss
-        loss = loss_fun(y_pred, y_val)  # todo: to train
+        print('\n------------------\nRUN %d: Training started\n------------------' % r)
 
-        print('Epoch %d: loss: %.3f' % (epoch, loss.item()))
+        best_aupr_val = 0
+        for epoch in range(num_epochs):
+            model.train()   # set model to the training mode
 
-        # zero out all of the gradients
-        optimizer.zero_grad()
+            permuted_idx = torch.randperm(len(X_features_train))
 
-        # Backward pass: compute gradient of the loss with respect to model parameters
-        loss.backward()
+            for i in range(0, len(X_features_train), batch_size):
+                # zero out all of the gradients
+                optimizer.zero_grad()
 
-        # make an update to model parameters
-        optimizer.step()
+                # make batches of samples
+                indices = permuted_idx[i:i + batch_size]
+                batch_X_features, batch_X_static, batch_X_time, batch_y = \
+                    X_features_train[indices], X_static_train[indices], X_time_train[indices], y_train[indices]
 
-        # check validation set
-        model.eval()    # set model to the evaluation mode
-        if epoch % 10 == 0:
-            with torch.no_grad():
-                y_pred = model(X_features_val, X_static_val, X_time_val)
-                loss = loss_fun(y_pred, y_val)
+                # forward pass
+                y_pred = model(batch_X_features, batch_X_static, batch_X_time)
 
-                # compute classification accuracy
+                # compute and print loss
+                loss = loss_fun(y_pred, batch_y)
 
-                # compute Area Under the Receiver Operating Characteristic Curve (ROC AUC)
+                # Backward pass: compute gradient of the loss with respect to model parameters
+                loss.backward()
 
-                # compute average precision and area under precision-recall curve
+                # make an update to model parameters
+                optimizer.step()
 
+            # check validation set
+            model.eval()    # set model to the evaluation mode
+            if epoch % 1 == 0:
+                with torch.no_grad():
+                    y_pred = model(X_features_val, X_static_val, X_time_val)
+                    val_loss = loss_fun(y_pred, y_val)
+                    y_pred = torch.squeeze(nn.functional.softmax(y_pred, dim=1))
 
-    print('\n------------------\nTraining finished\n------------------')
+                    # compute classification accuracy
+                    acc_val = np.sum(np.array(y_val) == np.argmax(np.array(y_pred), axis=1)) / y_val.shape[0]
 
+                    # compute Area Under the Receiver Operating Characteristic Curve (ROC AUC)
+                    auc_val = roc_auc_score(y_val, y_pred[:, 1])
+
+                    # compute average precision and area under precision-recall curve
+                    aupr_val = average_precision_score(y_val, y_pred[:, 1])
+                    scheduler.step(aupr_val)    # reduce learning rate when this metric has stopped improving
+
+                    print('Non-zero predictions = ', np.count_nonzero(np.argmax(np.array(y_pred), axis=1)))
+                    print("VALIDATION: Epoch %d, val_acc: %.2f val_loss: %.2f, aupr_val: %.2f, auc_val: %.2f" %
+                          (epoch, acc_val * 100, val_loss.item(), aupr_val * 100, auc_val * 100))
+
+                    # save the best model based on 'aupr'
+                    if aupr_val > best_aupr_val:
+                        best_aupr_val = aupr_val
+                        torch.save(model, model_path)
+
+        print('\n------------------\nRUN %d: Training finished\n------------------' % r)
+
+        # use the best model on validation set to predict on test set
+        model = torch.load(model_path)
+        model.eval()
+
+        with torch.no_grad():
+            y_pred = model(X_features_test, X_static_test, X_time_test)
+            y_pred = torch.squeeze(nn.functional.softmax(y_pred, dim=1))
+
+            # compute classification accuracy
+            acc_test = np.sum(np.array(y_test) == np.argmax(np.array(y_pred), axis=1)) / y_test.shape[0]
+
+            # compute Area Under the Receiver Operating Characteristic Curve (ROC AUC)
+            auc_test = roc_auc_score(y_test, y_pred[:, 1])
+
+            # compute average precision and area under precision-recall curve
+            aupr_test = average_precision_score(y_test, y_pred[:, 1])
+
+            print("\nTEST: test_acc: %.2f aupr_test: %.2f, auc_test: %.2f" %
+                  (acc_test * 100, aupr_test * 100, auc_test * 100))
+
+            acc_all.append(acc_test * 100)
+            auc_all.append(auc_test * 100)
+            aupr_all.append(aupr_test * 100)
+
+    # print mean and std of all metrics
+    acc_all, auc_all, aupr_all = np.array(acc_all), np.array(auc_all), np.array(aupr_all)
+    mean_acc, std_acc = np.mean(acc_all), np.std(acc_all)
+    mean_auc, std_auc = np.mean(auc_all), np.std(auc_all)
+    mean_aupr, std_aupr = np.mean(aupr_all), np.std(aupr_all)
+    print('------------------------------------------')
+    print('Accuracy = %.1f +/- %.1f' % (mean_acc, std_acc))
+    print('AUROC    = %.1f +/- %.1f' % (mean_auc, std_auc))
+    print('AUPRC    = %.1f +/- %.1f' % (mean_aupr, std_aupr))
 
 
 if __name__ == '__main__':
@@ -226,8 +316,8 @@ if __name__ == '__main__':
 
     d_model = 36    # number of features per time step
     max_len = 215   # max length of time series
-    n_heads = 2     # number of heads does not change the number of model parameters
-    dim_feedforward = 256
+    n_heads = 4     # number of heads does not change the number of model parameters
+    dim_feedforward = 128
 
     # apply positional encoding to the input
     X_features_train = positional_encoding(X_features_train, d_model, max_len, X_time_train)
@@ -235,11 +325,11 @@ if __name__ == '__main__':
     X_features_test = positional_encoding(X_features_test, d_model, max_len, X_time_test)
     print(X_features_train.shape, X_features_val.shape, X_features_test.shape)
 
-    model = Transformer_P12(d_model, max_len, n_heads, dim_feedforward)
-    model = model.double()
-    # model.cuda()
-    number_parameters(model)
-    print(model)
+    # model = Transformer_P12(d_model, max_len, n_heads, dim_feedforward)
+    # model = model.double()
+    # # model.cuda()
+    # number_parameters(model)
+    # print(model)
 
     # X_features_val = X_features_val.cuda()
     # X_static_val = X_static_val.cuda()
@@ -248,18 +338,16 @@ if __name__ == '__main__':
     # pred = model(X_features_val, X_static_val, X_time_val)
     # print('output shape: ', pred.shape, pred[0], pred[1])
 
-    num_epochs = 20
-    batch_size = 32
-    learning_rate = 0.0001
+    num_runs = 2
+    num_epochs = 10
+    batch_size = 128
+    learning_rate = 0.001
+    upsampling_factor = None    # None if no upsampling is desired
     X_train = (X_features_train, X_static_train, X_time_train, y_train)
     X_val = (X_features_val, X_static_val, X_time_val, y_val)
+    X_test = (X_features_test, X_static_test, X_time_test, y_test)
 
-    train_model(model, X_train, X_val, num_epochs, learning_rate, batch_size)
-
-
-
-
-
+    train_test_model(d_model, max_len, n_heads, dim_feedforward, X_train, X_val, X_test, num_runs, num_epochs, learning_rate, batch_size, upsampling_factor)
 
 
 
