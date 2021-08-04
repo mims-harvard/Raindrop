@@ -3,7 +3,7 @@ sys.path.append('../')
 
 import torch
 import numpy as np
-from sklearn.preprocessing import normalize
+from sklearn.preprocessing import normalize, scale
 
 from imputations import *
 from utils_phy12 import *
@@ -64,9 +64,9 @@ def read_and_prepare_data(base_path, split_path, normalization, imputation=None)
         # X_features_test = kNN_imputation(X_features_test, X_time_test)
 
         # load saved files for speed-up
-        X_features_train = np.load('X_features_train_kNN_imputed.npy')
-        X_features_val = np.load('X_features_validation_kNN_imputed.npy')
-        X_features_test = np.load('X_features_test_kNN_imputed.npy')
+        X_features_train = np.load('saved/X_features_train_kNN_imputed.npy')
+        X_features_val = np.load('saved/X_features_validation_kNN_imputed.npy')
+        X_features_test = np.load('saved/X_features_test_kNN_imputed.npy')
     elif imputation == 'MICE':  # might have problems with high memory usage and convergence
         X_features_train = MICE_imputation(X_features_train, X_time_train)
         X_features_val = MICE_imputation(X_features_val, X_time_val)
@@ -163,13 +163,14 @@ def get_static_mean(X_static):
 
 def normalize_ts(X_features):
     """
-    Perform L2 normalization for each time series feature in all samples.
+    Perform L2 normalization or standardization for each time series feature in all samples.
 
     :param X_features: time series features for all samples
-    :return: X_features, normalized
+    :return: X_features, normalized/standardized
     """
     for i, sample in enumerate(X_features):
-        X_features[i] = normalize(sample, axis=0)
+        X_features[i] = scale(sample, axis=0)   # standardization
+        # X_features[i] = normalize(sample, axis=0)    # normalization
     return X_features
 
 
@@ -223,6 +224,7 @@ def upsampling(X_train, upsampling_factor):
     y_train = y_train[permuted_idx].view(y_train.size()).type(torch.LongTensor)
 
     return X_features_train, X_static_train, X_time_train, y_train
+
 
 if __name__ == '__main__':
     """

@@ -89,8 +89,10 @@ def kNN_imputation(X_features, X_time):
 
     X_features = np.reshape(X_features_2d, newshape=X_features.shape)
 
+    X_features = np.nan_to_num(X_features, nan=0)   # convert possible NaNs to 0
+
     # # save imputed data
-    # np.save('X_features_train_kNN_imputed', X_features)
+    # np.save('saved/X_features_test_kNN_imputed', X_features)
 
     return X_features
 
@@ -116,7 +118,7 @@ def MICE_imputation(X_features, X_time):
     X_features = np.reshape(X_features_2d, newshape=X_features.shape)
 
     # # save imputed data
-    # np.save('X_features_train_MICE_imputed', X_features)
+    # np.save('saved/X_features_train_MICE_imputed', X_features)
 
     return X_features
 

@@ -104,7 +104,7 @@ class Transformer_P12(nn.Module):
         self.encoder_layer = nn.TransformerEncoderLayer(d_model=new_d_model, nhead=n_heads, dim_feedforward=dim_feedforward,
                                                         dropout=dropout, activation=activation, batch_first=True)
 
-        self.static_feed_forward = nn.Linear(9, 64)     # transform 9 static features to 64-dimensional vector
+        self.static_feed_forward = nn.Linear(9, new_d_model)     # transform 9 static features to longer vector
 
         self.feed_forward = nn.Sequential(
             nn.Linear(new_d_model, new_d_model),
@@ -166,7 +166,7 @@ class Transformer_P12(nn.Module):
         return self.feed_forward(x)
 
 
-def train_test_model(d_model, max_len, n_heads, dim_feedforward, X_train, X_val, X_test, num_runs, num_epochs, learning_rate, batch_size, upsampling_factor=None):
+def train_test_model(d_model, max_len, n_heads, dim_feedforward, X_train, X_val, X_test, num_runs, num_epochs, learning_rate, dropout, batch_size, upsampling_factor=None):
     """
     Train the model.
 
@@ -180,6 +180,7 @@ def train_test_model(d_model, max_len, n_heads, dim_feedforward, X_train, X_val,
     :param num_runs: number of independent runs
     :param num_epochs: number of epochs
     :param learning_rate: learning rate for optimizer
+    :param dropout: dropout rate
     :param batch_size: batch size
     :param upsampling_factor: upsampling of minority class by desired integer factor in train set, default=None (no upsampling)
     :return: None
@@ -195,11 +196,10 @@ def train_test_model(d_model, max_len, n_heads, dim_feedforward, X_train, X_val,
     acc_all = []
     auc_all = []
     aupr_all = []
-    model_path = 'best_model.pt'
+    model_path = './saved/best_model.pt'
 
     for r in range(num_runs):
-
-        model = Transformer_P12(d_model, max_len, n_heads, dim_feedforward, dropout=0.3)
+        model = Transformer_P12(d_model, max_len, n_heads, dim_feedforward, dropout=dropout)
         model = model.double()
         if r == 0:
             print(model)
@@ -240,6 +240,8 @@ def train_test_model(d_model, max_len, n_heads, dim_feedforward, X_train, X_val,
                 # make an update to model parameters
                 optimizer.step()
 
+            # print('Epoch %d: training loss: %.3f' % (epoch, loss.item()))
+
             # check validation set
             model.eval()    # set model to the evaluation mode
             if epoch % 1 == 0:
@@ -259,7 +261,7 @@ def train_test_model(d_model, max_len, n_heads, dim_feedforward, X_train, X_val,
                     scheduler.step(aupr_val)    # reduce learning rate when this metric has stopped improving
 
                     print('Non-zero predictions = ', np.count_nonzero(np.argmax(np.array(y_pred), axis=1)))
-                    print("VALIDATION: Epoch %d, val_acc: %.2f val_loss: %.2f, aupr_val: %.2f, auc_val: %.2f" %
+                    print("VALIDATION: Epoch %d, val_acc: %.2f, val_loss: %.2f, aupr_val: %.2f, auc_val: %.2f" %
                           (epoch, acc_val * 100, val_loss.item(), aupr_val * 100, auc_val * 100))
 
                     # save the best model based on 'aupr'
@@ -309,15 +311,15 @@ if __name__ == '__main__':
     split_idx = 1
     split_path = '/splits/phy12_split_subset' + str(split_idx) + '.npy'
 
-    normalization = True
-    imputation_method = None  # possible values: None, 'mean', 'forward', 'kNN', 'MICE', 'CubicSpline'
+    normalization = False
+    imputation_method = None  # possible values: None, 'mean', 'forward', 'kNN', 'MICE' (slow execution), 'CubicSpline'
 
     (X_features_train, X_static_train, X_time_train, y_train), (X_features_val, X_static_val, X_time_val, y_val), (X_features_test, X_static_test, X_time_test, y_test) = read_and_prepare_data(base_path, split_path, normalization, imputation=imputation_method)
 
     d_model = 36    # number of features per time step
     max_len = 215   # max length of time series
-    n_heads = 4     # number of heads does not change the number of model parameters
-    dim_feedforward = 128
+    n_heads = 8     # number of heads does not change the number of model parameters
+    dim_feedforward = 64
 
     # apply positional encoding to the input
     X_features_train = positional_encoding(X_features_train, d_model, max_len, X_time_train)
@@ -338,18 +340,17 @@ if __name__ == '__main__':
     # pred = model(X_features_val, X_static_val, X_time_val)
     # print('output shape: ', pred.shape, pred[0], pred[1])
 
-    num_runs = 2
-    num_epochs = 10
+    num_runs = 5
+    num_epochs = 20
     batch_size = 128
     learning_rate = 0.001
+    dropout = 0.3
     upsampling_factor = None    # None if no upsampling is desired
     X_train = (X_features_train, X_static_train, X_time_train, y_train)
     X_val = (X_features_val, X_static_val, X_time_val, y_val)
     X_test = (X_features_test, X_static_test, X_time_test, y_test)
 
-    train_test_model(d_model, max_len, n_heads, dim_feedforward, X_train, X_val, X_test, num_runs, num_epochs, learning_rate, batch_size, upsampling_factor)
-
-
-
+    train_test_model(d_model, max_len, n_heads, dim_feedforward, X_train, X_val, X_test, num_runs, num_epochs,
+                     learning_rate, dropout, batch_size, upsampling_factor)
 
 
