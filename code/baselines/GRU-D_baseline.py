@@ -12,8 +12,9 @@ import itertools
 import numbers
 import torch.utils.data as utils
 import matplotlib.pyplot as plt
-from sklearn.metrics import roc_curve, auc, roc_auc_score
+from sklearn.metrics import roc_curve, auc, roc_auc_score, confusion_matrix
 from sklearn.metrics import average_precision_score
+from utils_baselines import random_sample
 
 '''
 inputpath_1 = '../../P12data/rawdata/set-a/'
@@ -925,24 +926,91 @@ def count_parameters(model):
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
 
-def data_dataloader(dataset, outcomes, train_proportion=0.8, dev_proportion=0.1):
+def data_dataloader(dataset, outcomes, upsampling_batch, batch_size, split_type, train_proportion=0.8, dev_proportion=0.1):
     # 80% train, 10% validation, 10% test
     # test data is the remaining part after training and validation set (default=0.1)
 
-    # shuffle data
-    # np.random.seed(77)   # if you want different permutation for each run, remove this line
-    permuted_idx = np.random.permutation(dataset.shape[0])
-    dataset = dataset[permuted_idx]
-    outcomes = outcomes[permuted_idx]
+    if split_type == 'random':
+        # shuffle data
+        # np.random.seed(77)   # if you want the same permutation for each run
+        permuted_idx = np.random.permutation(dataset.shape[0])
+        dataset = dataset[permuted_idx]
+        outcomes = outcomes[permuted_idx]
 
-    train_index = int(np.floor(dataset.shape[0] * train_proportion))
-    dev_index = int(np.floor(dataset.shape[0] * (train_proportion + dev_proportion)))
-    
-    # split dataset to tarin/dev/test set
-    train_data, train_label = dataset[:train_index, :,:,:], outcomes[:train_index, :]
-    dev_data, dev_label = dataset[train_index:dev_index, :,:,:], outcomes[train_index:dev_index, :]
-    test_data, test_label = dataset[dev_index:, :,:,:], outcomes[dev_index:, :]
-    
+        train_index = int(np.floor(dataset.shape[0] * train_proportion))
+        dev_index = int(np.floor(dataset.shape[0] * (train_proportion + dev_proportion)))
+
+        # split dataset to train/dev/test set
+        if upsampling_batch:
+            train_data = []
+            train_label = []
+            idx_0 = np.where(outcomes[:train_index, :] == 0)[0]
+            idx_1 = np.where(outcomes[:train_index, :] == 1)[0]
+            for i in range(train_index // batch_size):
+                indices = random_sample(idx_0, idx_1, batch_size)
+                train_data.extend(dataset[indices, :, :, :])
+                train_label.extend(outcomes[indices, :])
+            train_data = np.array(train_data)
+            train_label = np.array(train_label)
+        else:
+            train_data, train_label = dataset[:train_index, :, :, :], outcomes[:train_index, :]
+
+        dev_data, dev_label = dataset[train_index:dev_index, :, :, :], outcomes[train_index:dev_index, :]
+        test_data, test_label = dataset[dev_index:, :, :, :], outcomes[dev_index:, :]
+    elif split_type == 'age' or split_type == 'gender':
+        # # calculate and save statistics
+        # idx_under_65 = []
+        # idx_over_65 = []
+        # idx_male = []
+        # idx_female = []
+        #
+        # P_list = np.load('../../P12data/processed_data/P_list.npy', allow_pickle=True)
+        #
+        # for i in range(len(P_list)):
+        #     age, gender, _, _, _ = P_list[i]['static']
+        #     if age > 0:
+        #         if age < 65:
+        #             idx_under_65.append(i)
+        #         else:
+        #             idx_over_65.append(i)
+        #     if gender == 0:
+        #         idx_female.append(i)
+        #     if gender == 1:
+        #         idx_male.append(i)
+        #
+        # np.save('saved/grud_idx_under_65.npy', np.array(idx_under_65), allow_pickle=True)
+        # np.save('saved/grud_idx_over_65.npy', np.array(idx_over_65), allow_pickle=True)
+        # np.save('saved/grud_idx_male.npy', np.array(idx_male), allow_pickle=True)
+        # np.save('saved/grud_idx_female.npy', np.array(idx_female), allow_pickle=True)
+
+        if split_type == 'age':
+            idx_train = np.load('saved/grud_idx_under_65.npy', allow_pickle=True)
+            idx_vt = np.load('saved/grud_idx_over_65.npy', allow_pickle=True)
+        else:   # split_type == 'gender':
+            idx_train = np.load('saved/grud_idx_male.npy', allow_pickle=True)
+            idx_vt = np.load('saved/grud_idx_female.npy', allow_pickle=True)
+
+        if upsampling_batch:
+            train_data = []
+            train_label = []
+            idx_0 = idx_train[np.where(outcomes[idx_train, :] == 0)[0]]
+            idx_1 = idx_train[np.where(outcomes[idx_train, :] == 1)[0]]
+            for i in range(len(idx_train) // batch_size):   # last small batch is dropped
+                indices = random_sample(idx_0, idx_1, batch_size)
+                train_data.extend(dataset[indices, :, :, :])
+                train_label.extend(outcomes[indices, :])
+            train_data = np.array(train_data)
+            train_label = np.array(train_label)
+        else:
+            train_data, train_label = dataset[idx_train, :, :, :], outcomes[idx_train, :]
+
+        np.random.shuffle(idx_vt)
+        idx_val = idx_vt[:round(len(idx_vt) / 2)]
+        idx_test = idx_vt[round(len(idx_vt) / 2):]
+
+        dev_data, dev_label = dataset[idx_val, :, :, :], outcomes[idx_val, :]
+        test_data, test_label = dataset[idx_test, :, :, :], outcomes[idx_test, :]
+
     # ndarray to tensor
     train_data, train_label = torch.Tensor(train_data), torch.Tensor(train_label)
     dev_data, dev_label = torch.Tensor(dev_data), torch.Tensor(dev_label)
@@ -981,7 +1049,7 @@ weights = 10*33*49(16170) + 33*5(165) = 16335 gap : 2503
 '''
 
 
-def train_gru_d(num_runs, input_size, hidden_size, output_size, num_layers, dropout, learning_rate, n_epochs):
+def train_gru_d(num_runs, input_size, hidden_size, output_size, num_layers, dropout, learning_rate, n_epochs, batch_size, upsampling_batch, split_type):
     model_path = 'saved/grud_model_best.pt'
 
     acc_all = []
@@ -994,7 +1062,8 @@ def train_gru_d(num_runs, input_size, hidden_size, output_size, num_layers, drop
         if r == 0:
             print(t_dataset.shape, t_out.shape)
 
-        train_dataloader, dev_dataloader, test_dataloader = data_dataloader(t_dataset, t_out, train_proportion=0.8, dev_proportion=0.1)
+        train_dataloader, dev_dataloader, test_dataloader = data_dataloader(t_dataset, t_out, upsampling_batch, batch_size,
+                                                                            split_type, train_proportion=0.8, dev_proportion=0.1)
 
         x_mean = torch.Tensor(np.load('saved/x_mean_aft_nor.npy'))
         print(x_mean.shape)
@@ -1124,6 +1193,8 @@ def train_gru_d(num_runs, input_size, hidden_size, output_size, num_layers, drop
             print("VALIDATION: Epoch %d, val_acc: %.2f, val_loss: %.2f, aupr_val: %.2f, auc_val: %.2f" %
                   (epoch, dev_acc * 100, dev_loss.item(), aupr_val * 100, auc_val * 100))
 
+            print(confusion_matrix(label, (np.array(pred) > 0.5).astype(int), labels=[0, 1]))
+
             # test loss
             losses, acc = [], []
             label, pred = [], []
@@ -1221,6 +1292,8 @@ def train_gru_d(num_runs, input_size, hidden_size, output_size, num_layers, drop
         print("\nTEST: test_acc: %.2f aupr_test: %.2f, auc_test: %.2f\n" %
               (test_acc * 100, aupr_score * 100, auc_score * 100))
 
+        print(confusion_matrix(label, (np.array(pred) > 0.5).astype(int), labels=[0, 1]))
+
         acc_all.append(test_acc * 100)
         auc_all.append(auc_score * 100)
         aupr_all.append(aupr_score * 100)
@@ -1262,6 +1335,10 @@ if __name__ == '__main__':
     dropout = 0.0    # dropout_type : Moon, Gal, mloss
     learning_rate = 0.001
     n_epochs = 20
+    batch_size = 128
+    upsampling_batch = True
+    split_type = 'gender'  # possible values: 'random', 'age', 'gender'
 
-    train_gru_d(num_runs, input_size, hidden_size, output_size, num_layers, dropout, learning_rate, n_epochs)
+    train_gru_d(num_runs, input_size, hidden_size, output_size, num_layers, dropout, learning_rate, n_epochs,
+                batch_size, upsampling_batch, split_type)
 

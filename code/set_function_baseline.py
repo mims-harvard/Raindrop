@@ -68,7 +68,7 @@ nhid = 2 * d_model
 # nhid = 256
 # nhid = 512  # seems to work better than 2*d_model=256
 # nhid = 1024
-nlayers = 1 #2  # the layer doesn't really matters
+nlayers = 1  #2  # the layer doesn't really matters
 
 # nhead = 16 # seems to work better
 nhead = 4  # 8, 16, 32
@@ -88,6 +88,8 @@ n_runs = 1  # change this from 1 to 1, in order to save debugging time.
 n_splits = 5  # change this from 5 to 1, in order to save debugging time.
 subset = True  # use subset for better debugging in local PC, which only contains 1200 patients
 
+split_type = 'age'   # possible values: 'random', 'age', 'gender'
+
 acc_arr = np.zeros((n_splits, n_runs))
 auprc_arr = np.zeros((n_splits, n_runs))
 auroc_arr = np.zeros((n_splits, n_runs))
@@ -100,7 +102,7 @@ for k in range(n_splits):
         split_path = '/splits/phy12_split' + str(split_idx) + '.npy'
 
     # prepare the data
-    Ptrain, Pval, Ptest, ytrain, yval, ytest = get_data_split(base_path, split_path)
+    Ptrain, Pval, Ptest, ytrain, yval, ytest = get_data_split(base_path, split_path, split_type)
 
     print(len(Ptrain), len(Pval), len(Ptest), len(ytrain), len(yval), len(ytest))
 
@@ -164,7 +166,7 @@ for k in range(n_splits):
         idx_0 = np.where(ytrain == 0)[0]
         idx_1 = np.where(ytrain == 1)[0]
 
-        strategy = 2
+        strategy = 1
 
         """Upsampling, increase the number of positive samples"""
         # Strategy 2: permute randomly each index set at each epoch, and expand x3 minority set
@@ -174,7 +176,8 @@ for k in range(n_splits):
 
         batch_size = 128  # balanced batch size
         if strategy == 1:
-            n_batches = 10  # number of batches to process per epoch
+            # n_batches = 10  # number of batches to process per epoch
+            n_batches = len(Ptrain) // batch_size
         elif strategy == 2:
             K0 = n0 // int(batch_size / 2)
             K1 = expanded_n1 // int(batch_size / 2)
@@ -202,7 +205,6 @@ for k in range(n_splits):
                 # I1 = expanded_idx_1[ep1]
                 # I0 = idx_0[p0]
             """In each epoch, first shuffle the samples, then take the first n_batches*int(batch_size / 2) for training"""
-
 
             for n in range(n_batches):
                 if strategy == 1:
@@ -251,11 +253,16 @@ for k in range(n_splits):
             """Use the last """
             """Validation"""
             model.eval()
-            if epoch ==0 or epoch % 1 == 0:
+            if epoch == 0 or epoch % 1 == 0:
                 with torch.no_grad():
-                    out_val = evaluate_standard(model, Pval_tensor, Pval_time_tensor, Pval_static_tensor)
+                    out_val = torch.zeros(Pval_tensor.size()[1], 2)
+                    for i in range(0, Pval_tensor.size()[1], batch_size):
+                        out_val[i:i + batch_size, :] = evaluate_standard(model, Pval_tensor[:, i:i + batch_size, :],
+                                                                         Pval_time_tensor[:, i:i + batch_size],
+                                                                         Pval_static_tensor[i:i + batch_size, :])
+
                     # out_val = torch.squeeze(torch.sigmoid(out_val))
-                    out_val = torch.squeeze(nn.functional.softmax(out_val))
+                    out_val = torch.squeeze(nn.functional.softmax(out_val, dim=1))
                     out_val = out_val.detach().cpu().numpy()
 
                     # denoms = np.sum(np.exp(out_val), axis=1).reshape((-1, 1))
@@ -300,7 +307,6 @@ for k in range(n_splits):
         with torch.no_grad():
             out_test = evaluate(model, Ptest_tensor, Ptest_time_tensor, Ptest_static_tensor).numpy()
             ypred = np.argmax(out_test, axis=1)
-
 
             denoms = np.sum(np.exp(out_test), axis=1).reshape((-1, 1))
             probs = np.exp(out_test) / denoms

@@ -9,7 +9,7 @@ from imputations import *
 from utils_phy12 import *
 
 
-def read_and_prepare_data(base_path, split_path, normalization, imputation=None):
+def read_and_prepare_data(base_path, split_path, normalization, imputation=None, split_type='random'):
     """
     Read data from the disk and prepare it into train, validation and test set.
 
@@ -18,10 +18,11 @@ def read_and_prepare_data(base_path, split_path, normalization, imputation=None)
     :param: normalization: boolean whether to normalize the data
     :param: imputation: imputation method for missing values, default: no imputation (zeroes for missing values),
                         possible values: 'mean', 'forward', 'kNN', 'MICE', 'CubicSpline'
+    :param: split_type: method of splitting the data for train, validation and test set
     :return: list of (X_features, X_static, X_time, y) for train, validation and test set
     """
     # prepare the data
-    X_train, X_val, X_test, y_train, y_val, y_test = get_data_split(base_path, split_path)
+    X_train, X_val, X_test, y_train, y_val, y_test = get_data_split(base_path, split_path, split_type)
     # print(X_train.shape, len(X_val), len(X_test), y_train.shape, len(y_val), len(y_test))
 
     """
@@ -226,6 +227,21 @@ def upsampling(X_train, upsampling_factor):
     return X_features_train, X_static_train, X_time_train, y_train
 
 
+def random_sample(idx_0, idx_1, batch_size):
+    """
+    Returns a balanced sample by randomly sampling without replacement.
+
+    :param idx_0: indices of negative samples
+    :param idx_1: indices of positive samples
+    :param batch_size: batch size
+    :return: indices of balanced batch of negative and positive samples
+    """
+    idx0_batch = np.random.choice(idx_0, size=int(batch_size / 2), replace=False)
+    idx1_batch = np.random.choice(idx_1, size=int(batch_size / 2), replace=False)
+    idx = np.concatenate([idx0_batch, idx1_batch], axis=0)
+    return idx
+
+
 if __name__ == '__main__':
     """
     P12 data (11988 samples):
@@ -244,7 +260,7 @@ if __name__ == '__main__':
     normalization = True
     imputation_method = None   # possible values: None, 'mean', 'forward', 'kNN', 'MICE', 'CubicSpline'
 
-    (X_features_train, X_static_train, X_time_train, y_train), (X_features_val, X_static_val, X_time_val, y_val), (X_features_test, X_static_test, X_time_test, y_test) = read_and_prepare_data(base_path, split_path, normalization, imputation=imputation_method)
+    # (X_features_train, X_static_train, X_time_train, y_train), (X_features_val, X_static_val, X_time_val, y_val), (X_features_test, X_static_test, X_time_test, y_test) = read_and_prepare_data(base_path, split_path, normalization, imputation=imputation_method)
 
 
 

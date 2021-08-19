@@ -6,8 +6,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from utils_baselines import *
-from sklearn.metrics import roc_auc_score
-from sklearn.metrics import average_precision_score
+from sklearn.metrics import roc_auc_score, average_precision_score, confusion_matrix
 
 
 def number_parameters(model):
@@ -124,7 +123,7 @@ class Transformer_P12(nn.Module):
         Create padding mask of the size (batch, seq_len).
 
         :param X_time: times, when observations were measured; size = (batch, seq_len, 1)
-        :return: return the BoolTensor mask with the size (batch, seq_len)
+        :return: return the BoolTensor mask with the size (batch, seq_len) and time_length
         """
         time_length = [np.where(times == 0)[0][1] if np.where(times == 0)[0][0] == 0 else np.where(times == 0)[0][0] for
                        times in X_time]  # list, len(time_length)=len(X_time)
@@ -132,7 +131,7 @@ class Transformer_P12(nn.Module):
         for i in range(len(X_time)):
             mask[i, time_length[i]:] = torch.ones(max_len - time_length[i])
         mask = mask.type(torch.BoolTensor)
-        return mask
+        return mask, time_length
 
     def forward(self, X_features, X_static, X_time):
         """
@@ -144,7 +143,7 @@ class Transformer_P12(nn.Module):
         :return: binary values at the output layer
         """
         # create mask for zero padding
-        mask = self.create_padding_mask(X_time)
+        mask, time_length = self.create_padding_mask(X_time)
 
         # apply dropout for output from positional encoding
         x = self.pos_enc_dropout(X_features)
@@ -159,14 +158,20 @@ class Transformer_P12(nn.Module):
         static_x = self.static_feed_forward(X_static).unsqueeze(1)
         x = torch.cat((x, static_x), dim=1)
 
-        # take the mean of all time steps (rows) with additional row for static features; output size = (batch_size, 64)
-        x = torch.mean(x, 1)
+        # # take the mean of all time steps (rows) with additional row for static features; output size = (batch_size, 64)
+        # x = torch.mean(x, 1)
+
+        # take the masked mean of all time steps (rows) with additional row for static features; output size = (batch_size, 64)
+        mask = torch.cat((mask, torch.ones((x.size()[0], 1), dtype=torch.bool)), dim=1).unsqueeze(2).long()
+        time_length = torch.FloatTensor(time_length).unsqueeze(1)
+        x = torch.sum(x * (1 - mask), dim=1) / (time_length + 1)    # masked aggregation
 
         # pass through fully-connected part to lower dimension to 2 (binary classification)
         return self.feed_forward(x)
 
 
-def train_test_model(d_model, max_len, n_heads, dim_feedforward, X_train, X_val, X_test, num_runs, num_epochs, learning_rate, dropout, batch_size, upsampling_factor=None):
+def train_test_model(d_model, max_len, n_heads, dim_feedforward, X_train, X_val, X_test, num_runs, num_epochs,
+                     learning_rate, dropout, batch_size, upsampling_factor=None, upsampling_batch=False):
     """
     Train the model.
 
@@ -183,6 +188,7 @@ def train_test_model(d_model, max_len, n_heads, dim_feedforward, X_train, X_val,
     :param dropout: dropout rate
     :param batch_size: batch size
     :param upsampling_factor: upsampling of minority class by desired integer factor in train set, default=None (no upsampling)
+    :param upsampling_batch: boolean to determine if number of positive and negative samples in each batch should be equal, default=False
     :return: None
     """
     X_features_train, X_static_train, X_time_train, y_train = X_train
@@ -191,7 +197,9 @@ def train_test_model(d_model, max_len, n_heads, dim_feedforward, X_train, X_val,
 
     if upsampling_factor is not None:   # upsampling of minority class
         X_features_train, X_static_train, X_time_train, y_train = upsampling(X_train, upsampling_factor)
-        print('Size after upsampling: ', X_features_train.shape, X_static_train.shape, X_time_train.shape, y_train.shape)
+        print('\nSize after upsampling: ', X_features_train.shape, X_static_train.shape, X_time_train.shape, y_train.shape)
+        pos_n = torch.count_nonzero(y_train)
+        print('Positive samples: %d, negative samples: %d\n' % (pos_n, len(y_train) - pos_n))
 
     acc_all = []
     auc_all = []
@@ -224,7 +232,13 @@ def train_test_model(d_model, max_len, n_heads, dim_feedforward, X_train, X_val,
                 optimizer.zero_grad()
 
                 # make batches of samples
-                indices = permuted_idx[i:i + batch_size]
+                if upsampling_batch:    # the same number of positive and negative samples in a batch
+                    idx_0 = np.where(y_train.detach().cpu().numpy() == 0)[0]
+                    idx_1 = np.where(y_train.detach().cpu().numpy() == 1)[0]
+                    indices = random_sample(idx_0, idx_1, batch_size)
+                else:   # batch distribution is the same as overall distribution
+                    indices = permuted_idx[i:i + batch_size]
+
                 batch_X_features, batch_X_static, batch_X_time, batch_y = \
                     X_features_train[indices], X_static_train[indices], X_time_train[indices], y_train[indices]
 
@@ -246,7 +260,12 @@ def train_test_model(d_model, max_len, n_heads, dim_feedforward, X_train, X_val,
             model.eval()    # set model to the evaluation mode
             if epoch % 1 == 0:
                 with torch.no_grad():
-                    y_pred = model(X_features_val, X_static_val, X_time_val)
+                    y_pred = np.zeros(shape=(len(X_features_val), 2))
+                    for i in range(0, len(X_features_val), batch_size):
+                        y_pred[i:i + batch_size, :] = model(X_features_val[i:i + batch_size], X_static_val[i:i + batch_size],
+                                                            X_time_val[i:i + batch_size]).detach().cpu().numpy()
+                    y_pred = torch.from_numpy(y_pred)
+
                     val_loss = loss_fun(y_pred, y_val)
                     y_pred = torch.squeeze(nn.functional.softmax(y_pred, dim=1))
 
@@ -269,6 +288,8 @@ def train_test_model(d_model, max_len, n_heads, dim_feedforward, X_train, X_val,
                         best_aupr_val = aupr_val
                         torch.save(model, model_path)
 
+                    print(confusion_matrix(y_val, np.argmax(y_pred, axis=1), labels=[0, 1]))
+
         print('\n------------------\nRUN %d: Training finished\n------------------' % r)
 
         # use the best model on validation set to predict on test set
@@ -276,7 +297,12 @@ def train_test_model(d_model, max_len, n_heads, dim_feedforward, X_train, X_val,
         model.eval()
 
         with torch.no_grad():
-            y_pred = model(X_features_test, X_static_test, X_time_test)
+            y_pred = np.zeros(shape=(len(X_features_test), 2))
+            for i in range(0, len(X_features_test), batch_size):
+                y_pred[i:i + batch_size, :] = model(X_features_test[i:i + batch_size], X_static_test[i:i + batch_size],
+                                                    X_time_test[i:i + batch_size]).detach().cpu().numpy()
+            y_pred = torch.from_numpy(y_pred)
+
             y_pred = torch.squeeze(nn.functional.softmax(y_pred, dim=1))
 
             # compute classification accuracy
@@ -290,6 +316,8 @@ def train_test_model(d_model, max_len, n_heads, dim_feedforward, X_train, X_val,
 
             print("\nTEST: test_acc: %.2f aupr_test: %.2f, auc_test: %.2f" %
                   (acc_test * 100, aupr_test * 100, auc_test * 100))
+
+            print(confusion_matrix(y_test, np.argmax(y_pred, axis=1), labels=[0, 1]))
 
             acc_all.append(acc_test * 100)
             auc_all.append(auc_test * 100)
@@ -313,8 +341,9 @@ if __name__ == '__main__':
 
     normalization = False
     imputation_method = None  # possible values: None, 'mean', 'forward', 'kNN', 'MICE' (slow execution), 'CubicSpline'
+    split_type = 'gender'   # possible values: 'random', 'age', 'gender'
 
-    (X_features_train, X_static_train, X_time_train, y_train), (X_features_val, X_static_val, X_time_val, y_val), (X_features_test, X_static_test, X_time_test, y_test) = read_and_prepare_data(base_path, split_path, normalization, imputation=imputation_method)
+    (X_features_train, X_static_train, X_time_train, y_train), (X_features_val, X_static_val, X_time_val, y_val), (X_features_test, X_static_test, X_time_test, y_test) = read_and_prepare_data(base_path, split_path, normalization, imputation=imputation_method, split_type=split_type)
 
     d_model = 36    # number of features per time step
     max_len = 215   # max length of time series
@@ -346,11 +375,12 @@ if __name__ == '__main__':
     learning_rate = 0.001
     dropout = 0.3
     upsampling_factor = None    # None if no upsampling is desired
+    upsampling_batch = True
     X_train = (X_features_train, X_static_train, X_time_train, y_train)
     X_val = (X_features_val, X_static_val, X_time_val, y_val)
     X_test = (X_features_test, X_static_test, X_time_test, y_test)
 
     train_test_model(d_model, max_len, n_heads, dim_feedforward, X_train, X_val, X_test, num_runs, num_epochs,
-                     learning_rate, dropout, batch_size, upsampling_factor)
+                     learning_rate, dropout, batch_size, upsampling_factor, upsampling_batch)
 
 

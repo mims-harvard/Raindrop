@@ -3,8 +3,9 @@
 # Author: Theodoros Tsiligkaridis
 # Last updated: April 26 2021
 import numpy as np
-
+import matplotlib.pyplot as plt
 import torch
+import random
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
@@ -47,7 +48,7 @@ class NoamOpt:
         self.optimizer.zero_grad()
 
 
-def get_data_split(base_path, split_path):
+def get_data_split(base_path, split_path, split_type='random'):
     # load data
     Pdict_list = np.load(base_path + '/processed_data/PTdict_list.npy', allow_pickle=True)
     arr_outcomes = np.load(base_path + '/processed_data/arr_outcomes.npy', allow_pickle=True)
@@ -56,9 +57,90 @@ def get_data_split(base_path, split_path):
     # Pdict_list = np.load(base_path + '/PTdict_list.npy', allow_pickle=True)
     # arr_outcomes = np.load(base_path + '/arr_outcomes.npy', allow_pickle=True)
 
-    # load indices from a split
-    idx_train, idx_val, idx_test = np.load(base_path + split_path, allow_pickle=True)
-    #     print(len(idx_train), len(idx_val), len(idx_test))
+    show_statistics = False
+    if show_statistics:
+        idx_under_65 = []
+        idx_over_65 = []
+
+        idx_male = []
+        idx_female = []
+
+        # variables for statistics
+        all_ages = []
+        female_count = 0
+        male_count = 0
+        all_BMI = []
+
+        X_static = np.zeros((len(Pdict_list), len(Pdict_list[0]['extended_static'])))
+        for i in range(len(Pdict_list)):
+            X_static[i] = Pdict_list[i]['extended_static']
+            age, gender_0, gender_1, height, _, _, _, _, weight = X_static[i]
+            if age > 0:
+                all_ages.append(age)
+                if age < 65:
+                    idx_under_65.append(i)
+                else:
+                    idx_over_65.append(i)
+            if gender_0 == 1:
+                female_count += 1
+                idx_female.append(i)
+            if gender_1 == 1:
+                male_count += 1
+                idx_male.append(i)
+            if height > 0 and weight > 0:
+                all_BMI.append(weight / ((height / 100) ** 2))
+
+        # plot statistics
+        plt.hist(all_ages, bins=[i * 10 for i in range(12)])
+        plt.xlabel('Years')
+        plt.ylabel('# people')
+        plt.title('Histogram of patients ages, age known in %d samples.\nMean: %.1f, Std: %.1f, Median: %.1f' %
+                  (len(all_ages), np.mean(np.array(all_ages)), np.std(np.array(all_ages)), np.median(np.array(all_ages))))
+        plt.show()
+
+        plt.hist(all_BMI, bins=[5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60])
+        all_BMI = np.array(all_BMI)
+        all_BMI = all_BMI[(all_BMI > 10) & (all_BMI < 65)]
+        plt.xlabel('BMI')
+        plt.ylabel('# people')
+        plt.title('Histogram of patients BMI, height and weight known in %d samples.\nMean: %.1f, Std: %.1f, Median: %.1f' %
+                  (len(all_BMI), np.mean(all_BMI), np.std(all_BMI), np.median(all_BMI)))
+        plt.show()
+        print('\nGender known: %d,  Male count: %d,  Female count: %d\n' % (male_count + female_count, male_count, female_count))
+
+    # np.save('saved/idx_under_65.npy', np.array(idx_under_65), allow_pickle=True)
+    # np.save('saved/idx_over_65.npy', np.array(idx_over_65), allow_pickle=True)
+    # np.save('saved/idx_male.npy', np.array(idx_male), allow_pickle=True)
+    # np.save('saved/idx_female.npy', np.array(idx_female), allow_pickle=True)
+
+    transformer_path = True
+
+    if split_type == 'random':
+        # load random indices from a split
+        idx_train, idx_val, idx_test = np.load(base_path + split_path, allow_pickle=True)
+        #     print(len(idx_train), len(idx_val), len(idx_test))
+    elif split_type == 'age':
+        if transformer_path:    # relative path for for Transformer_baseline.py
+            idx_train = np.load('saved/idx_under_65.npy', allow_pickle=True)
+            idx_vt = np.load('saved/idx_over_65.npy', allow_pickle=True)
+        else:   # relative path for for set_function_baseline.py
+            idx_train = np.load('baselines/saved/idx_under_65.npy', allow_pickle=True)
+            idx_vt = np.load('baselines/saved/idx_over_65.npy', allow_pickle=True)
+
+        np.random.shuffle(idx_vt)
+        idx_val = idx_vt[:round(len(idx_vt) / 2)]
+        idx_test = idx_vt[round(len(idx_vt) / 2):]
+    elif split_type == 'gender':
+        if transformer_path:    # relative path for for Transformer_baseline.py
+            idx_train = np.load('saved/idx_male.npy', allow_pickle=True)
+            idx_vt = np.load('saved/idx_female.npy', allow_pickle=True)
+        else:   # relative path for for set_function_baseline.py
+            idx_train = np.load('baselines/saved/idx_male.npy', allow_pickle=True)
+            idx_vt = np.load('baselines/saved/idx_female.npy', allow_pickle=True)
+
+        np.random.shuffle(idx_vt)
+        idx_val = idx_vt[:round(len(idx_vt) / 2)]
+        idx_test = idx_vt[round(len(idx_vt) / 2):]
 
     # extract train/val/test examples
     Ptrain = Pdict_list[idx_train]
