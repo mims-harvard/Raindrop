@@ -1,12 +1,17 @@
 """
 Transformer baseline for P12 mortality data.
 """
+import sys
+sys.path.append('../')
+
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from utils_baselines import *
 from sklearn.metrics import roc_auc_score, average_precision_score, confusion_matrix
+
+from models import Transformer_P12
 
 
 def number_parameters(model):
@@ -70,104 +75,6 @@ class PositionalEncoding(nn.Module):
     def forward(self, x):
         x = x + self.pe   # concatenate input with positional encodings
         return self.dropout(x)
-
-
-class Transformer_P12(nn.Module):
-    """
-    Transformer model (only encoder part) for time series classification of P12 dataset.
-    """
-    def __init__(self, d_model, max_len, n_heads, dim_feedforward, activation='relu', dropout=0.1):
-        """
-        Initialize the model instance.
-
-        :param d_model: dimension of a single sequential instance (number of features per instance)
-        :param max_len: maximum length of the sequence (time series)
-        :param n_heads: number of attention heads
-        :param dim_feedforward: dimension of the feedforward network model
-        :param activation: activation function of intermediate layer
-        :param dropout: dropout rate
-        """
-        super().__init__()
-
-        # # lose the notion of exact time observations, positional encoding done beforehand
-        # self.pos_enc = PositionalEncoding(d_model, max_len)
-
-        self.max_len = max_len
-
-        # starting dropout from positional encoding
-        self.pos_enc_dropout = nn.Dropout(p=dropout)
-
-        new_d_model = 64
-        self.linear_embedding = nn.Linear(d_model, new_d_model)   # embed 36 features into 64 to be consistent with other baselines
-
-        self.encoder_layer = nn.TransformerEncoderLayer(d_model=new_d_model, nhead=n_heads, dim_feedforward=dim_feedforward,
-                                                        dropout=dropout, activation=activation, batch_first=True)
-
-        self.static_feed_forward = nn.Linear(9, new_d_model)     # transform 9 static features to longer vector
-
-        self.feed_forward = nn.Sequential(
-            nn.Linear(new_d_model, new_d_model),
-            nn.ReLU(),
-            nn.Linear(new_d_model, 2)
-            # nn.Softmax(dim=1)   # the softmax function is already included in cross-entropy loss
-        )
-
-        # self.init_weights()
-
-    def init_weights(self):
-        init_range = 0.01
-        self.encoder_layer.weight.data.uniform_(-init_range, init_range)
-
-    def create_padding_mask(self, X_time):
-        """
-        Create padding mask of the size (batch, seq_len).
-
-        :param X_time: times, when observations were measured; size = (batch, seq_len, 1)
-        :return: return the BoolTensor mask with the size (batch, seq_len) and time_length
-        """
-        time_length = [np.where(times == 0)[0][1] if np.where(times == 0)[0][0] == 0 else np.where(times == 0)[0][0] for
-                       times in X_time]  # list, len(time_length)=len(X_time)
-        mask = torch.zeros([len(X_time), self.max_len])
-        for i in range(len(X_time)):
-            mask[i, time_length[i]:] = torch.ones(max_len - time_length[i])
-        mask = mask.type(torch.BoolTensor)
-        return mask, time_length
-
-    def forward(self, X_features, X_static, X_time):
-        """
-        Feed-forward process of the network.
-
-        :param X_features: input of time series features (with already added positional encoding)
-        :param X_static: input of static features
-        :param X_time: times, when observations were measured; size = (batch, seq_len, 1)
-        :return: binary values at the output layer
-        """
-        # create mask for zero padding
-        mask, time_length = self.create_padding_mask(X_time)
-
-        # apply dropout for output from positional encoding
-        x = self.pos_enc_dropout(X_features)
-
-        # embed 36 features into 64 to be consistent with other baselines
-        x = self.linear_embedding(x)
-
-        # pass through transformer encoder layer
-        x = self.encoder_layer(x, src_key_padding_mask=mask)
-
-        # concatenate static features to the matrix (add additional row with the size 64)
-        static_x = self.static_feed_forward(X_static).unsqueeze(1)
-        x = torch.cat((x, static_x), dim=1)
-
-        # # take the mean of all time steps (rows) with additional row for static features; output size = (batch_size, 64)
-        # x = torch.mean(x, 1)
-
-        # take the masked mean of all time steps (rows) with additional row for static features; output size = (batch_size, 64)
-        mask = torch.cat((mask, torch.ones((x.size()[0], 1), dtype=torch.bool)), dim=1).unsqueeze(2).long()
-        time_length = torch.FloatTensor(time_length).unsqueeze(1)
-        x = torch.sum(x * (1 - mask), dim=1) / (time_length + 1)    # masked aggregation
-
-        # pass through fully-connected part to lower dimension to 2 (binary classification)
-        return self.feed_forward(x)
 
 
 def train_test_model(d_model, max_len, n_heads, dim_feedforward, X_train, X_val, X_test, num_runs, num_epochs,
@@ -335,52 +242,45 @@ def train_test_model(d_model, max_len, n_heads, dim_feedforward, X_train, X_val,
 
 
 if __name__ == '__main__':
-    base_path = '../../P12data'
-    split_idx = 1
-    split_path = '/splits/phy12_split_subset' + str(split_idx) + '.npy'
+    # missing_ratios = [0.0, 0.2, 0.4, 0.6, 0.8, 1.0]   # ratios [0, 1] of missing variables in validation and test set
+    missing_ratios = [0.2]
+    for missing_ratio in missing_ratios:
+        base_path = '../../P12data'
+        split_idx = 1
+        split_path = '/splits/phy12_split_subset' + str(split_idx) + '.npy'
 
-    normalization = False
-    imputation_method = None  # possible values: None, 'mean', 'forward', 'kNN', 'MICE' (slow execution), 'CubicSpline'
-    split_type = 'gender'   # possible values: 'random', 'age', 'gender'
+        normalization = False
+        imputation_method = None  # possible values: None, 'mean', 'forward', 'kNN', 'MICE' (slow execution), 'CubicSpline'
+        split_type = 'random'   # possible values: 'random', 'age', 'gender'
+        feature_removal_level = 'set'   # possible values: 'sample', 'set'
+        # missing_ratio = 0.0     # ratio [0, 1] of missing variables in validation and test set
 
-    (X_features_train, X_static_train, X_time_train, y_train), (X_features_val, X_static_val, X_time_val, y_val), (X_features_test, X_static_test, X_time_test, y_test) = read_and_prepare_data(base_path, split_path, normalization, imputation=imputation_method, split_type=split_type)
+        (X_features_train, X_static_train, X_time_train, y_train), (X_features_val, X_static_val, X_time_val, y_val), (X_features_test, X_static_test, X_time_test, y_test) = \
+            read_and_prepare_data(base_path, split_path, normalization, feature_removal_level, missing_ratio, imputation=imputation_method, split_type=split_type)
 
-    d_model = 36    # number of features per time step
-    max_len = 215   # max length of time series
-    n_heads = 8     # number of heads does not change the number of model parameters
-    dim_feedforward = 64
+        d_model = 36    # number of features per time step
+        max_len = 215   # max length of time series
+        n_heads = 8     # number of heads does not change the number of model parameters
+        dim_feedforward = 64
 
-    # apply positional encoding to the input
-    X_features_train = positional_encoding(X_features_train, d_model, max_len, X_time_train)
-    X_features_val = positional_encoding(X_features_val, d_model, max_len, X_time_val)
-    X_features_test = positional_encoding(X_features_test, d_model, max_len, X_time_test)
-    print(X_features_train.shape, X_features_val.shape, X_features_test.shape)
+        # apply positional encoding to the input
+        X_features_train = positional_encoding(X_features_train, d_model, max_len, X_time_train)
+        X_features_val = positional_encoding(X_features_val, d_model, max_len, X_time_val)
+        X_features_test = positional_encoding(X_features_test, d_model, max_len, X_time_test)
+        print(X_features_train.shape, X_features_val.shape, X_features_test.shape)
 
-    # model = Transformer_P12(d_model, max_len, n_heads, dim_feedforward)
-    # model = model.double()
-    # # model.cuda()
-    # number_parameters(model)
-    # print(model)
+        num_runs = 5
+        num_epochs = 20
+        batch_size = 128
+        learning_rate = 0.001
+        dropout = 0.3
+        upsampling_factor = None    # None if no whole set upsampling is desired
+        upsampling_batch = True     # True if we want the same number of positive nad negative samples in each batch
+        X_train = (X_features_train, X_static_train, X_time_train, y_train)
+        X_val = (X_features_val, X_static_val, X_time_val, y_val)
+        X_test = (X_features_test, X_static_test, X_time_test, y_test)
 
-    # X_features_val = X_features_val.cuda()
-    # X_static_val = X_static_val.cuda()
-    # X_time_val = X_time_val.cuda()
-
-    # pred = model(X_features_val, X_static_val, X_time_val)
-    # print('output shape: ', pred.shape, pred[0], pred[1])
-
-    num_runs = 5
-    num_epochs = 20
-    batch_size = 128
-    learning_rate = 0.001
-    dropout = 0.3
-    upsampling_factor = None    # None if no upsampling is desired
-    upsampling_batch = True
-    X_train = (X_features_train, X_static_train, X_time_train, y_train)
-    X_val = (X_features_val, X_static_val, X_time_val, y_val)
-    X_test = (X_features_test, X_static_test, X_time_test, y_test)
-
-    train_test_model(d_model, max_len, n_heads, dim_feedforward, X_train, X_val, X_test, num_runs, num_epochs,
-                     learning_rate, dropout, batch_size, upsampling_factor, upsampling_batch)
-
+        train_test_model(d_model, max_len, n_heads, dim_feedforward, X_train, X_val, X_test, num_runs, num_epochs,
+                         learning_rate, dropout, batch_size, upsampling_factor, upsampling_batch)
+        print('\nAbove results for missing ratio: %d\n\n\n' % missing_ratio)
 

@@ -9,13 +9,15 @@ from imputations import *
 from utils_phy12 import *
 
 
-def read_and_prepare_data(base_path, split_path, normalization, imputation=None, split_type='random'):
+def read_and_prepare_data(base_path, split_path, normalization, feature_removal_level, missing_ratio, imputation=None, split_type='random'):
     """
     Read data from the disk and prepare it into train, validation and test set.
 
     :param base_path: base path to the data
     :param split_path: specific path to the data
     :param: normalization: boolean whether to normalize the data
+    :param: feature_removal_level: level of removing features, 'sample' or 'set'
+    :param: missing_ratio: ratio [0, 1] of missing variables in validation and test set
     :param: imputation: imputation method for missing values, default: no imputation (zeroes for missing values),
                         possible values: 'mean', 'forward', 'kNN', 'MICE', 'CubicSpline'
     :param: split_type: method of splitting the data for train, validation and test set
@@ -41,6 +43,10 @@ def read_and_prepare_data(base_path, split_path, normalization, imputation=None,
     X_features_train, X_static_train, X_time_train, y_train = prepare_3D_data(X_train, y_train)
     X_features_val, X_static_val, X_time_val, y_val = prepare_3D_data(X_val, y_val)
     X_features_test, X_static_test, X_time_test, y_test = prepare_3D_data(X_test, y_test)
+
+    # X_features = np.concatenate((X_features_train, X_features_val, X_features_test), axis=0)
+    # density_score(X_features)
+    # res = np.load('saved/density_scores.npy', allow_pickle=True)
 
     # get stats for time series features from training data
     features_means = get_features_mean(X_features_train)
@@ -89,6 +95,25 @@ def read_and_prepare_data(base_path, split_path, normalization, imputation=None,
         X_static_val = normalize_static(X_static_val)
         X_static_test = normalize_static(X_static_test)
 
+    if feature_removal_level == 'sample':
+        num_all_features = X_features_val.shape[2]
+        num_missing_features = round(missing_ratio * num_all_features)
+        for i, patient in enumerate(X_features_val):
+            idx = np.random.choice(num_all_features, num_missing_features, replace=False)
+            patient[:, idx] = np.zeros(shape=(X_features_val.shape[1], num_missing_features))
+            X_features_val[i] = patient
+        for i, patient in enumerate(X_features_test):
+            idx = np.random.choice(num_all_features, num_missing_features, replace=False)
+            patient[:, idx] = np.zeros(shape=(X_features_test.shape[1], num_missing_features))
+            X_features_test[i] = patient
+    elif feature_removal_level == 'set':
+        num_all_features = X_features_val.shape[2]
+        num_missing_features = round(missing_ratio * num_all_features)
+        density_score_indices = np.load('saved/density_scores.npy', allow_pickle=True)[:, 0]
+        idx = density_score_indices[:num_missing_features].astype(int)
+        X_features_val[:, :, idx] = np.zeros(shape=(X_features_val.shape[0], X_features_val.shape[1], num_missing_features))
+        X_features_test[:, :, idx] = np.zeros(shape=(X_features_test.shape[0], X_features_test.shape[1], num_missing_features))
+
     # change numpy arrays to tensors (X_features will be changed later)
     X_static_train = torch.from_numpy(X_static_train)
     X_static_val = torch.from_numpy(X_static_val)
@@ -126,6 +151,21 @@ def prepare_3D_data(X, y):
 
     print(X_features.shape, X_static.shape, X_time.shape, y.shape)
     return X_features, X_static, X_time, y
+
+
+def density_score(X_features):
+    """
+    Calculate density score of all features in all patients. Rank variables in ascending order.
+
+    :param X_features: time series features for all samples
+    :return: None, just save list of feature indices, density scores and names, ranked by ascending density score
+    """
+    counts = np.count_nonzero(X_features, axis=(0, 1))
+    ascending_indices = np.argsort(counts)
+    density_scores = counts / (X_features.shape[0] * 215)
+    params_list = np.load('../../P12data/processed_data/ts_params.npy', allow_pickle=True)
+    res = [[ind, density_scores[ind], params_list[ind]] for ind in ascending_indices]
+    np.save('saved/density_scores.npy', res, allow_pickle=True)
 
 
 def get_features_mean(X_features):

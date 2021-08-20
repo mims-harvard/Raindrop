@@ -3,6 +3,8 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import warnings
+import numbers
 
 from torch.nn.parameter import Parameter
 
@@ -194,7 +196,7 @@ class TransformerModel2(nn.Module):
         self.emb.weight.data.uniform_(-initrange, initrange)
 
     def forward(self, src, static, times, lengths):
-        maxlen, batch_size = src.shape[0], src.shape[1]  # src.shape = [215, 128, 72]
+        maxlen, batch_size = src.shape[0], src.shape[1]  # mTAND.shape = [215, 128, 72]
 
         """Question: why 72 features (36 feature + 36 mask)?"""
         src = self.encoder(src) * math.sqrt(self.d_model)  # linear layer: 72 --> 32
@@ -203,7 +205,7 @@ class TransformerModel2(nn.Module):
         # pe.shape = [215, 128, 32]
 
         """Here are two options: plus or concat"""
-        #         src = src + pe
+        #         mTAND = mTAND + pe
         src = torch.cat([pe, src], axis=2)  # shape: [215, 128, 64]
         src = self.dropout(src)
 
@@ -229,6 +231,449 @@ class TransformerModel2(nn.Module):
 
         # feed through MLP
         output = self.mlp(output)  # two linears: 64-->64-->2
+        return output
+
+
+class Transformer_P12(nn.Module):
+    """
+    Transformer model (only encoder part) for time series classification of P12 dataset.
+    """
+    def __init__(self, d_model, max_len, n_heads, dim_feedforward, activation='relu', dropout=0.1):
+        """
+        Initialize the model instance.
+
+        :param d_model: dimension of a single sequential instance (number of features per instance)
+        :param max_len: maximum length of the sequence (time series)
+        :param n_heads: number of attention heads
+        :param dim_feedforward: dimension of the feedforward network model
+        :param activation: activation function of intermediate layer
+        :param dropout: dropout rate
+        """
+        super().__init__()
+
+        # # lose the notion of exact time observations, positional encoding done beforehand
+        # self.pos_enc = PositionalEncoding(d_model, max_len)
+
+        self.max_len = max_len
+
+        # starting dropout from positional encoding
+        self.pos_enc_dropout = nn.Dropout(p=dropout)
+
+        new_d_model = 64
+        self.linear_embedding = nn.Linear(d_model, new_d_model)   # embed 36 features into 64 to be consistent with other baselines
+
+        self.encoder_layer = nn.TransformerEncoderLayer(d_model=new_d_model, nhead=n_heads, dim_feedforward=dim_feedforward,
+                                                        dropout=dropout, activation=activation, batch_first=True)
+
+        self.static_feed_forward = nn.Linear(9, new_d_model)     # transform 9 static features to longer vector
+
+        self.feed_forward = nn.Sequential(
+            nn.Linear(new_d_model, new_d_model),
+            nn.ReLU(),
+            nn.Linear(new_d_model, 2)
+            # nn.Softmax(dim=1)   # the softmax function is already included in cross-entropy loss
+        )
+
+        # self.init_weights()
+
+    def init_weights(self):
+        init_range = 0.01
+        self.encoder_layer.weight.data.uniform_(-init_range, init_range)
+
+    def create_padding_mask(self, X_time):
+        """
+        Create padding mask of the size (batch, seq_len).
+
+        :param X_time: times, when observations were measured; size = (batch, seq_len, 1)
+        :return: return the BoolTensor mask with the size (batch, seq_len) and time_length
+        """
+        time_length = [np.where(times == 0)[0][1] if np.where(times == 0)[0][0] == 0 else np.where(times == 0)[0][0] for
+                       times in X_time]  # list, len(time_length)=len(X_time)
+        mask = torch.zeros([len(X_time), self.max_len])
+        for i in range(len(X_time)):
+            mask[i, time_length[i]:] = torch.ones(self.max_len - time_length[i])
+        mask = mask.type(torch.BoolTensor)
+        return mask, time_length
+
+    def forward(self, X_features, X_static, X_time):
+        """
+        Feed-forward process of the network.
+
+        :param X_features: input of time series features (with already added positional encoding)
+        :param X_static: input of static features
+        :param X_time: times, when observations were measured; size = (batch, seq_len, 1)
+        :return: binary values at the output layer
+        """
+        # create mask for zero padding
+        mask, time_length = self.create_padding_mask(X_time)
+
+        # apply dropout for output from positional encoding
+        x = self.pos_enc_dropout(X_features)
+
+        # embed 36 features into 64 to be consistent with other baselines
+        x = self.linear_embedding(x)
+
+        # pass through transformer encoder layer
+        x = self.encoder_layer(x, src_key_padding_mask=mask)
+
+        # concatenate static features to the matrix (add additional row with the size 64)
+        static_x = self.static_feed_forward(X_static).unsqueeze(1)
+        x = torch.cat((x, static_x), dim=1)
+
+        # # take the mean of all time steps (rows) with additional row for static features; output size = (batch_size, 64)
+        # x = torch.mean(x, 1)
+
+        # take the masked mean of all time steps (rows) with additional row for static features; output size = (batch_size, 64)
+        mask = torch.cat((mask, torch.ones((x.size()[0], 1), dtype=torch.bool)), dim=1).unsqueeze(2).long()
+        time_length = torch.FloatTensor(time_length).unsqueeze(1)
+        x = torch.sum(x * (1 - mask), dim=1) / (time_length + 1)    # masked aggregation
+
+        # pass through fully-connected part to lower dimension to 2 (binary classification)
+        return self.feed_forward(x)
+
+
+class GRUD(torch.nn.Module):
+    def __init__(self, input_size, hidden_size, output_size, num_layers=1, x_mean=0,
+                 bias=True, batch_first=False, bidirectional=False, dropout_type='mloss', dropout=0.0):
+        super(GRUD, self).__init__()
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+        self.output_size = output_size
+        self.num_layers = num_layers
+        self.zeros = torch.autograd.Variable(torch.zeros(input_size))
+        # self.x_mean = torch.autograd.Variable(torch.tensor(x_mean))
+        self.x_mean = x_mean.clone().detach().requires_grad_(True)
+        self.bias = bias
+        self.batch_first = batch_first
+        self.dropout_type = dropout_type
+        self.dropout = dropout
+        self.bidirectional = bidirectional
+        num_directions = 2 if bidirectional else 1
+
+        if not isinstance(dropout, numbers.Number) or not 0 <= dropout <= 1 or \
+                isinstance(dropout, bool):
+            raise ValueError("dropout should be a number in range [0, 1] "
+                             "representing the probability of an element being "
+                             "zeroed")
+        if dropout > 0 and num_layers == 1:
+            warnings.warn("dropout option adds dropout after all but last "
+                          "recurrent layer, so non-zero dropout expects "
+                          "num_layers greater than 1, but got dropout={} and "
+                          "num_layers={}".format(dropout, num_layers))
+
+        ################################
+        gate_size = 1  # not used
+        ################################
+
+        self._all_weights = []
+
+        '''
+        w_ih = Parameter(torch.Tensor(gate_size, layer_input_size))
+        w_hh = Parameter(torch.Tensor(gate_size, hidden_size))
+        b_ih = Parameter(torch.Tensor(gate_size))
+        b_hh = Parameter(torch.Tensor(gate_size))
+        layer_params = (w_ih, w_hh, b_ih, b_hh)
+        '''
+        # decay rates gamma
+        w_dg_x = torch.nn.Parameter(torch.Tensor(input_size))
+        w_dg_h = torch.nn.Parameter(torch.Tensor(hidden_size))
+
+        # z
+        w_xz = torch.nn.Parameter(torch.Tensor(input_size))
+        w_hz = torch.nn.Parameter(torch.Tensor(hidden_size))
+        w_mz = torch.nn.Parameter(torch.Tensor(input_size))
+
+        # r
+        w_xr = torch.nn.Parameter(torch.Tensor(input_size))
+        w_hr = torch.nn.Parameter(torch.Tensor(hidden_size))
+        w_mr = torch.nn.Parameter(torch.Tensor(input_size))
+
+        # h_tilde
+        w_xh = torch.nn.Parameter(torch.Tensor(input_size))
+        w_hh = torch.nn.Parameter(torch.Tensor(hidden_size))
+        w_mh = torch.nn.Parameter(torch.Tensor(input_size))
+
+        # y (output)
+        w_hy = torch.nn.Parameter(torch.Tensor(output_size, hidden_size))
+
+        # bias
+        b_dg_x = torch.nn.Parameter(torch.Tensor(hidden_size))
+        b_dg_h = torch.nn.Parameter(torch.Tensor(hidden_size))
+        b_z = torch.nn.Parameter(torch.Tensor(hidden_size))
+        b_r = torch.nn.Parameter(torch.Tensor(hidden_size))
+        b_h = torch.nn.Parameter(torch.Tensor(hidden_size))
+        b_y = torch.nn.Parameter(torch.Tensor(output_size))
+
+        layer_params = (w_dg_x, w_dg_h,
+                        w_xz, w_hz, w_mz,
+                        w_xr, w_hr, w_mr,
+                        w_xh, w_hh, w_mh,
+                        w_hy,
+                        b_dg_x, b_dg_h, b_z, b_r, b_h, b_y)
+
+        param_names = ['weight_dg_x', 'weight_dg_h',
+                       'weight_xz', 'weight_hz', 'weight_mz',
+                       'weight_xr', 'weight_hr', 'weight_mr',
+                       'weight_xh', 'weight_hh', 'weight_mh',
+                       'weight_hy']
+        if bias:
+            param_names += ['bias_dg_x', 'bias_dg_h',
+                            'bias_z',
+                            'bias_r',
+                            'bias_h',
+                            'bias_y']
+
+        for name, param in zip(param_names, layer_params):
+            setattr(self, name, param)
+        self._all_weights.append(param_names)
+
+        self.flatten_parameters()
+        self.reset_parameters()
+
+    def flatten_parameters(self):
+        """
+        Resets parameter data pointer so that they can use faster code paths.
+        Right now, this works only if the module is on the GPU and cuDNN is enabled.
+        Otherwise, it's a no-op.
+        """
+        any_param = next(self.parameters()).data
+        if not any_param.is_cuda or not torch.backends.cudnn.is_acceptable(any_param):
+            return
+
+        # If any parameters alias, we fall back to the slower, copying code path. This is
+        # a sufficient check, because overlapping parameter buffers that don't completely
+        # alias would break the assumptions of the uniqueness check in
+        # Module.named_parameters().
+        all_weights = self._flat_weights
+        unique_data_ptrs = set(p.data_ptr() for p in all_weights)
+        if len(unique_data_ptrs) != len(all_weights):
+            return
+
+        with torch.cuda.device_of(any_param):
+            import torch.backends.cudnn.rnn as rnn
+
+            # NB: This is a temporary hack while we still don't have Tensor
+            # bindings for ATen functions
+            with torch.no_grad():
+                # NB: this is an INPLACE function on all_weights, that's why the
+                # no_grad() is necessary.
+                torch._cudnn_rnn_flatten_weight(
+                    all_weights, (4 if self.bias else 2),
+                    self.input_size, rnn.get_cudnn_mode(self.mode), self.hidden_size, self.num_layers,
+                    self.batch_first, bool(self.bidirectional))
+
+    def _apply(self, fn):
+        ret = super(GRUD, self)._apply(fn)
+        self.flatten_parameters()
+        return ret
+
+    def reset_parameters(self):
+        stdv = 1.0 / math.sqrt(self.hidden_size)
+        for weight in self.parameters():
+            torch.nn.init.uniform_(weight, -stdv, stdv)
+
+    def check_forward_args(self, input, hidden, batch_sizes):
+        is_input_packed = batch_sizes is not None
+        expected_input_dim = 2 if is_input_packed else 3
+        if input.dim() != expected_input_dim:
+            raise RuntimeError(
+                'input must have {} dimensions, got {}'.format(
+                    expected_input_dim, input.dim()))
+        if self.input_size != input.size(-1):
+            raise RuntimeError(
+                'input.size(-1) must be equal to input_size. Expected {}, got {}'.format(
+                    self.input_size, input.size(-1)))
+
+        if is_input_packed:
+            mini_batch = int(batch_sizes[0])
+        else:
+            mini_batch = input.size(0) if self.batch_first else input.size(1)
+
+        num_directions = 2 if self.bidirectional else 1
+        expected_hidden_size = (self.num_layers * num_directions,
+                                mini_batch, self.hidden_size)
+
+        def check_hidden_size(hx, expected_hidden_size, msg='Expected hidden size {}, got {}'):
+            if tuple(hx.size()) != expected_hidden_size:
+                raise RuntimeError(msg.format(expected_hidden_size, tuple(hx.size())))
+
+        if self.mode == 'LSTM':
+            check_hidden_size(hidden[0], expected_hidden_size,
+                              'Expected hidden[0] size {}, got {}')
+            check_hidden_size(hidden[1], expected_hidden_size,
+                              'Expected hidden[1] size {}, got {}')
+        else:
+            check_hidden_size(hidden, expected_hidden_size)
+
+    def extra_repr(self):
+        s = '{input_size}, {hidden_size}'
+        if self.num_layers != 1:
+            s += ', num_layers={num_layers}'
+        if self.bias is not True:
+            s += ', bias={bias}'
+        if self.batch_first is not False:
+            s += ', batch_first={batch_first}'
+        if self.dropout != 0:
+            s += ', dropout={dropout}'
+        if self.bidirectional is not False:
+            s += ', bidirectional={bidirectional}'
+        return s.format(**self.__dict__)
+
+    def __setstate__(self, d):
+        super(GRUD, self).__setstate__(d)
+        if 'all_weights' in d:
+            self._all_weights = d['all_weights']
+        if isinstance(self._all_weights[0][0], str):
+            return
+        num_layers = self.num_layers
+        num_directions = 2 if self.bidirectional else 1
+        self._all_weights = []
+
+        weights = ['weight_dg_x', 'weight_dg_h',
+                   'weight_xz', 'weight_hz', 'weight_mz',
+                   'weight_xr', 'weight_hr', 'weight_mr',
+                   'weight_xh', 'weight_hh', 'weight_mh',
+                   'weight_hy',
+                   'bias_dg_x', 'bias_dg_h',
+                   'bias_z', 'bias_r', 'bias_h', 'bias_y']
+
+        if self.bias:
+            self._all_weights += [weights]
+        else:
+            self._all_weights += [weights[:2]]
+
+    @property
+    def _flat_weights(self):
+        return list(self._parameters.values())
+
+    @property
+    def all_weights(self):
+        return [[getattr(self, weight) for weight in weights] for weights in self._all_weights]
+
+    def forward(self, input):
+        # input.size = (3, 33,49) : num_input or num_hidden, num_layer or step
+        X = torch.squeeze(input[0])  # .size = (33,49)
+        Mask = torch.squeeze(input[1])  # .size = (33,49)
+        Delta = torch.squeeze(input[2])  # .size = (33,49)
+        Hidden_State = torch.autograd.Variable(torch.zeros(self.input_size))
+
+        # step_size = X.size(1)  # 49
+        # print('step size : ', step_size)
+
+        output = None
+        h = Hidden_State
+
+        # decay rates gamma
+        w_dg_x = getattr(self, 'weight_dg_x')
+        w_dg_h = getattr(self, 'weight_dg_h')
+
+        # z
+        w_xz = getattr(self, 'weight_xz')
+        w_hz = getattr(self, 'weight_hz')
+        w_mz = getattr(self, 'weight_mz')
+
+        # r
+        w_xr = getattr(self, 'weight_xr')
+        w_hr = getattr(self, 'weight_hr')
+        w_mr = getattr(self, 'weight_mr')
+
+        # h_tilde
+        w_xh = getattr(self, 'weight_xh')
+        w_hh = getattr(self, 'weight_hh')
+        w_mh = getattr(self, 'weight_mh')
+
+        # bias
+        b_dg_x = getattr(self, 'bias_dg_x')
+        b_dg_h = getattr(self, 'bias_dg_h')
+        b_z = getattr(self, 'bias_z')
+        b_r = getattr(self, 'bias_r')
+        b_h = getattr(self, 'bias_h')
+
+        for layer in range(self.num_layers):
+
+            x = torch.squeeze(X[:, layer:layer + 1])
+            m = torch.squeeze(Mask[:, layer:layer + 1])
+            d = torch.squeeze(Delta[:, layer:layer + 1])
+
+            # (4)
+            gamma_x = torch.exp(-torch.max(self.zeros, (w_dg_x * d + b_dg_x)))
+            gamma_h = torch.exp(-torch.max(self.zeros, (w_dg_h * d + b_dg_h)))
+
+            # (5)
+            x = m * x + (1 - m) * (gamma_x * x + (1 - gamma_x) * self.x_mean)
+
+            # (6)
+            if self.dropout == 0:
+                h = gamma_h * h
+
+                z = torch.sigmoid((w_xz * x + w_hz * h + w_mz * m + b_z))
+                r = torch.sigmoid((w_xr * x + w_hr * h + w_mr * m + b_r))
+                h_tilde = torch.tanh((w_xh * x + w_hh * (r * h) + w_mh * m + b_h))
+
+                h = (1 - z) * h + z * h_tilde
+
+            elif self.dropout_type == 'Moon':
+                '''
+                RNNDROP: a novel dropout for rnn in asr(2015)
+                '''
+                h = gamma_h * h
+
+                z = torch.sigmoid((w_xz * x + w_hz * h + w_mz * m + b_z))
+                r = torch.sigmoid((w_xr * x + w_hr * h + w_mr * m + b_r))
+
+                h_tilde = torch.tanh((w_xh * x + w_hh * (r * h) + w_mh * m + b_h))
+
+                h = (1 - z) * h + z * h_tilde
+                dropout = torch.nn.Dropout(p=self.dropout)
+                h = dropout(h)
+
+            elif self.dropout_type == 'Gal':
+                '''
+                A Theoretically grounded application of dropout in recurrent neural networks(2015)
+                '''
+                dropout = torch.nn.Dropout(p=self.dropout)
+                h = dropout(h)
+
+                h = gamma_h * h
+
+                z = torch.sigmoid((w_xz * x + w_hz * h + w_mz * m + b_z))
+                r = torch.sigmoid((w_xr * x + w_hr * h + w_mr * m + b_r))
+                h_tilde = torch.tanh((w_xh * x + w_hh * (r * h) + w_mh * m + b_h))
+
+                h = (1 - z) * h + z * h_tilde
+
+            elif self.dropout_type == 'mloss':
+                '''
+                recurrent dropout without memory loss arXiv 1603.05118
+                g = h_tilde, p = the probability to not drop a neuron
+                '''
+
+                h = gamma_h * h
+
+                z = torch.sigmoid((w_xz * x + w_hz * h + w_mz * m + b_z))
+                r = torch.sigmoid((w_xr * x + w_hr * h + w_mr * m + b_r))
+                h_tilde = torch.tanh((w_xh * x + w_hh * (r * h) + w_mh * m + b_h))
+
+                dropout = torch.nn.Dropout(p=self.dropout)
+                h_tilde = dropout(h_tilde)
+
+                h = (1 - z) * h + z * h_tilde
+
+            else:
+                h = gamma_h * h
+
+                z = torch.sigmoid((w_xz * x + w_hz * h + w_mz * m + b_z))
+                r = torch.sigmoid((w_xr * x + w_hr * h + w_mr * m + b_r))
+                h_tilde = torch.tanh((w_xh * x + w_hh * (r * h) + w_mh * m + b_h))
+
+                h = (1 - z) * h + z * h_tilde
+
+        w_hy = getattr(self, 'weight_hy')
+        b_y = getattr(self, 'bias_y')
+
+        output = torch.matmul(w_hy, h) + b_y
+        output = torch.sigmoid(output)
+
         return output
 
 
@@ -317,32 +762,32 @@ class HGT_latconcat(nn.Module):
         glorot(self.adj)
         # self.adj.uniform_(0, 0.5)  # initialize as 0-0.5
 
-    def forward(self, src, static, times, lengths):
+    def forward(self, mTAND, static, times, lengths):
         """Input to the model:
-        src = P: [215, 128, 36] : 36 nodes, 128 samples, each sample each channel has a feature with 215-D vector
+        mTAND = P: [215, 128, 36] : 36 nodes, 128 samples, each sample each channel has a feature with 215-D vector
         static = Pstatic: [128, 9]: this one doesn't matter; static features
         times = Ptime: [215, 128]: the timestamps
        lengths = lengths: [128]: the number of nonzero recordings.
         """
-        maxlen, batch_size = src.shape[0], src.shape[1]  # src.shape = [215, 128, 72]
+        maxlen, batch_size = mTAND.shape[0], mTAND.shape[1]  # mTAND.shape = [215, 128, 72]
 
         """Question: why 72 features (36 feature + 36 mask)?"""
-        src = self.encoder(src) * math.sqrt(self.d_model)  # linear layer: 72 --> 32
+        mTAND = self.encoder(mTAND) * math.sqrt(self.d_model)  # linear layer: 72 --> 32
 
         pe = self.pos_encoder(times)  # times.shape = [215, 128], the values are hours.
         # pe.shape = [215, 128, 32]
 
         """Use late concat"""
-        src = self.dropout(src)  # [215, 128, 36]
+        mTAND = self.dropout(mTAND)  # [215, 128, 36]
         emb = self.emb(static)  # emb.shape = [128, 64]. Linear layer: 9--> 64
 
 
 
         # append context on front
         """215-D for time series and 1-D for static info"""
-        # x = torch.cat([emb.unsqueeze(0), src], dim=0)  # x.shape: [216, 128, 64]
+        # x = torch.cat([emb.unsqueeze(0), mTAND], dim=0)  # x.shape: [216, 128, 64]
         # """If don't concat static info:"""
-        x = src  # [215, 128, 36]
+        x = mTAND  # [215, 128, 36]
 
 
         """mask out the all-zero rows. """
@@ -561,30 +1006,30 @@ class LSTM_decomposedGIN(nn.Module):
         glorot(self.adj)
         # self.adj.uniform_(0, 0.5)  # initialize as 0-0.5
 
-    def forward(self, src, static, times, lengths):
+    def forward(self, mTAND, static, times, lengths):
         """Input to the model:
-        src = P: [215, 128, 36] : 36 nodes, 128 samples, each sample each channel has a feature with 215-D vector
+        mTAND = P: [215, 128, 36] : 36 nodes, 128 samples, each sample each channel has a feature with 215-D vector
         static = Pstatic: [128, 9]: this one doesn't matter; static features
         times = Ptime: [215, 128]: the timestamps
        lengths = lengths: [128]: the number of nonzero recordings.
         """
-        maxlen, batch_size = src.shape[0], src.shape[1]  # src.shape = [215, 128, 72]
+        maxlen, batch_size = mTAND.shape[0], mTAND.shape[1]  # mTAND.shape = [215, 128, 72]
 
         """Question: why 72 features (36 feature + 36 mask)?"""
-        src = self.encoder(src) * math.sqrt(self.d_model)  # linear layer: 72 --> 32
+        mTAND = self.encoder(mTAND) * math.sqrt(self.d_model)  # linear layer: 72 --> 32
 
         pe = self.pos_encoder(times)  # times.shape = [215, 128], the values are hours.
         # pe.shape = [215, 128, 32]
 
         """Use late concat"""
-        src = self.dropout(src)  # [215, 128, 36]
+        mTAND = self.dropout(mTAND)  # [215, 128, 36]
         emb = self.emb(static)  # emb.shape = [128, 64]. Linear layer: 9--> 64
 
         # append context on front
         """215-D for time series and 1-D for static info"""
-        # x = torch.cat([emb.unsqueeze(0), src], dim=0)  # x.shape: [216, 128, 64]
+        # x = torch.cat([emb.unsqueeze(0), mTAND], dim=0)  # x.shape: [216, 128, 64]
         # """If don't concat static info:"""
-        x = src  # [215, 128, 36]
+        x = mTAND  # [215, 128, 36]
 
         """mask out the all-zero rows. """
         mask = torch.arange(maxlen + 1)[None, :] >= (lengths.cpu()[:, None] + 1)
@@ -610,7 +1055,7 @@ class LSTM_decomposedGIN(nn.Module):
         # x_step1 = x[:, :, 0].reshape([-1, 1])
         # step_results = self.GINstep1 (x_step1, edge_index=edge_index)
 
-        output = torch.zeros([215, src.shape[1], 36]).cuda()  # shape[215, 128, 36]
+        output = torch.zeros([215, mTAND.shape[1], 36]).cuda()  # shape[215, 128, 36]
         for stamp in range(0, x.shape[-1]):
             stepdata = x[:, :, stamp].reshape([-1, 1])  # take [128,36,1 ] as one slice and reshape to [128*36, 1]
             stepdata = self.GINstep1(stepdata, edge_index=edge_index)
@@ -827,34 +1272,34 @@ class Raindrop(nn.Module):
 
 
 
-    def forward(self, src, static, times, lengths):
+    def forward(self, mTAND, static, times, lengths):
         """Input to the model:
-        src = P: [215, 128, 36] : 36 nodes, 128 samples, each sample each channel has a feature with 215-D vector
+        mTAND = P: [215, 128, 36] : 36 nodes, 128 samples, each sample each channel has a feature with 215-D vector
         static = Pstatic: [128, 9]: this one doesn't matter; static features
         times = Ptime: [215, 128]: the timestamps
        lengths = lengths: [128]: the number of nonzero recordings.
         """
-        missing_mask = src[:, :, self.d_inp:int(2*self.d_inp)]
-        src =  src[:, :, :self.d_inp]
+        missing_mask = mTAND[:, :, self.d_inp:int(2*self.d_inp)]
+        mTAND =  mTAND[:, :, :self.d_inp]
 
-        maxlen, batch_size = src.shape[0], src.shape[1]  # src.shape = [215, 128, 36]
+        maxlen, batch_size = mTAND.shape[0], mTAND.shape[1]  # mTAND.shape = [215, 128, 36]
 
         """Question: why 72 features (36 feature + 36 mask)?"""
-        src = self.encoder(src) * math.sqrt(self.d_model)  # linear layer: 36 --> 36
+        mTAND = self.encoder(mTAND) * math.sqrt(self.d_model)  # linear layer: 36 --> 36
 
         pe = self.pos_encoder(times)  # times.shape = [215, 128], the values are hours.
         # pe.shape = [215, 128, 32]
 
         """Use late concat"""
-        src = self.dropout(src)  # [215, 128, 36]
+        mTAND = self.dropout(mTAND)  # [215, 128, 36]
         emb = self.emb(static)  # emb.shape = [128, 64]. Linear layer: 9--> 64
 
 
         # append context on front
         """215-D for time series and 1-D for static info"""
-        # x = torch.cat([emb.unsqueeze(0), src], dim=0)  # x.shape: [216, 128, 64]
+        # x = torch.cat([emb.unsqueeze(0), mTAND], dim=0)  # x.shape: [216, 128, 64]
         # """If don't concat static info:"""
-        x = src  # [215, 128, 36]
+        x = mTAND  # [215, 128, 36]
 
 
         """mask out the all-zero rows. """
@@ -883,7 +1328,7 @@ class Raindrop(nn.Module):
         """Using GIN with raindrop"""
         x = x.permute(1,2, 0)  # x: [215, 128, 36] --> [128, 36, 215]
 
-        output = torch.zeros([215, src.shape[1] , 36]).cuda() # shape[215, 128, 36]
+        output = torch.zeros([215, mTAND.shape[1] , 36]).cuda() # shape[215, 128, 36]
         for stamp in range(0, x.shape[-1]):
             stepdata = x[:, :, stamp].reshape([-1, 1])  # take [128,36,1 ] as one slice and reshape to [128*36, 1]
             stepdata = self.GINstep1(stepdata, edge_index=edge_index)

@@ -113,7 +113,7 @@ def get_data_split(base_path, split_path, split_type='random'):
     # np.save('saved/idx_male.npy', np.array(idx_male), allow_pickle=True)
     # np.save('saved/idx_female.npy', np.array(idx_female), allow_pickle=True)
 
-    transformer_path = True
+    transformer_path = False
 
     if split_type == 'random':
         # load random indices from a split
@@ -179,6 +179,7 @@ def getStats(P_tensor):
         stdf[f] = np.std(vals_f)
         stdf[f] = np.max([stdf[f], eps])
     return mf, stdf
+
 def mask_normalize(P_tensor, mf, stdf):
     """ Normalize time series variables. Missing ones are set to zero after normalization. """
     N, T, F = P_tensor.shape

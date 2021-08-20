@@ -247,7 +247,7 @@ def random_sample(idx_0, idx_1, batch_size):
     return idx
 
 
-def get_physionet_data(args, device, q, upsampling_batch, flag=1):
+def get_physionet_data(args, device, q, upsampling_batch, split_type, feature_removal_level, missing_ratio, flag=1):
     train_dataset_obj_1 = PhysioNet('data/physionet', train=True,
                                   quantization=q,
                                   download=True, n_samples=12000,
@@ -262,7 +262,6 @@ def get_physionet_data(args, device, q, upsampling_batch, flag=1):
                                   quantization=q,
                                   download=True, n_samples=12000,
                                   device=device, set_letter='c')
-
 
     # # Use custom collate_fn to combine samples with arbitrary time observations.
     # # Returns the dataset along with mask and time steps
@@ -289,9 +288,50 @@ def get_physionet_data(args, device, q, upsampling_batch, flag=1):
 
     print('len(total_dataset):', len(total_dataset))
 
-    # Shuffle and split
-    train_data, test_data = model_selection.train_test_split(total_dataset, train_size=0.9,     # 80% train, 10% validation, 10% test
-                                                             shuffle=True)
+    '''
+    # calculate and save statistics
+    idx_under_65 = []
+    idx_over_65 = []
+    idx_male = []
+    idx_female = []
+
+    P_list = np.load('P_list.npy', allow_pickle=True)
+
+    for i in range(len(P_list)):
+        if total_dataset[i][0] == P_list[i]['id']:
+            age, gender, _, _, _ = P_list[i]['static']
+            if age > 0:
+                if age < 65:
+                    idx_under_65.append(i)
+                else:
+                    idx_over_65.append(i)
+            if gender == 0:
+                idx_female.append(i)
+            if gender == 1:
+                idx_male.append(i)
+
+    np.save('mtand_idx_under_65.npy', np.array(idx_under_65), allow_pickle=True)
+    np.save('mtand_idx_over_65.npy', np.array(idx_over_65), allow_pickle=True)
+    np.save('mtand_idx_male.npy', np.array(idx_male), allow_pickle=True)
+    np.save('mtand_idx_female.npy', np.array(idx_female), allow_pickle=True)
+    '''
+
+    if split_type == 'random':
+        # Shuffle and split
+        train_data, test_data = model_selection.train_test_split(total_dataset, train_size=0.9,     # 80% train, 10% validation, 10% test
+                                                                 shuffle=True)
+    elif split_type == 'age' or split_type == 'gender':
+        if split_type == 'age':
+            idx_train = np.load('mtand_idx_under_65.npy', allow_pickle=True)
+            idx_vt = np.load('mtand_idx_over_65.npy', allow_pickle=True)
+        else:  # split_type == 'gender':
+            idx_train = np.load('mtand_idx_male.npy', allow_pickle=True)
+            idx_vt = np.load('mtand_idx_female.npy', allow_pickle=True)
+
+        np.random.shuffle(idx_train)
+        np.random.shuffle(idx_vt)
+        train_data = [total_dataset[i] for i in idx_train]
+        test_data = [total_dataset[i] for i in idx_vt]
 
     record_id, tt, vals, mask, labels = train_data[0]
 
@@ -300,11 +340,47 @@ def get_physionet_data(args, device, q, upsampling_batch, flag=1):
     data_min, data_max = get_data_min_max(total_dataset, device)
     batch_size = min(min(len(train_dataset_obj_1), args.batch_size), args.n)
     if flag:
-        test_data_combined = variable_time_collate_fn(test_data, device, classify=args.classif,
-                                                      data_min=data_min, data_max=data_max)
-
         if args.classif:
-            train_data, val_data = model_selection.train_test_split(train_data, train_size=0.8889, shuffle=True)  # 80% train, 10% validation, 10% test
+            if split_type == 'random':
+                train_data, val_data = model_selection.train_test_split(train_data, train_size=0.8889, shuffle=True)  # 80% train, 10% validation, 10% test
+            elif split_type == 'age' or split_type == 'gender':
+                val_data, test_data = model_selection.train_test_split(test_data, train_size=0.5, shuffle=False)
+
+            if feature_removal_level == 'sample':
+                num_all_features = 36
+                num_missing_features = round(missing_ratio * num_all_features)
+                for i, tpl in enumerate(val_data):
+                    idx = np.random.choice(num_all_features, num_missing_features, replace=False)
+                    _, _, values, _, _ = tpl
+                    tpl = list(tpl)
+                    values[:, idx] = torch.zeros(values.shape[0], num_missing_features)
+                    tpl[2] = values
+                    val_data[i] = tuple(tpl)
+                for i, tpl in enumerate(test_data):
+                    idx = np.random.choice(num_all_features, num_missing_features, replace=False)
+                    _, _, values, _, _ = tpl
+                    tpl = list(tpl)
+                    values[:, idx] = torch.zeros(values.shape[0], num_missing_features)
+                    tpl[2] = values
+                    test_data[i] = tuple(tpl)
+            elif feature_removal_level == 'set':
+                num_all_features = 36
+                num_missing_features = round(missing_ratio * num_all_features)
+                dict_params = train_dataset_obj_1.params_dict
+                density_scores_names = np.load('density_scores.npy', allow_pickle=True)[:, 2]
+                idx = [dict_params[name] for name in density_scores_names[:num_missing_features]]
+                for i, tpl in enumerate(val_data):
+                    _, _, values, _, _ = tpl
+                    tpl = list(tpl)
+                    values[:, idx] = torch.zeros(values.shape[0], num_missing_features)
+                    tpl[2] = values
+                    val_data[i] = tuple(tpl)
+                for i, tpl in enumerate(test_data):
+                    _, _, values, _, _ = tpl
+                    tpl = list(tpl)
+                    values[:, idx] = torch.zeros(values.shape[0], num_missing_features)
+                    tpl[2] = values
+                    test_data[i] = tuple(tpl)
 
             if upsampling_batch:
                 train_data_upsamled = []
@@ -316,8 +392,8 @@ def get_physionet_data(args, device, q, upsampling_batch, flag=1):
                     for i in indices:
                         train_data_upsamled.append(train_data[i])
                 train_data = train_data_upsamled
-                print('Batches upsampled!')
 
+            test_data_combined = variable_time_collate_fn(test_data, device, classify=args.classif, data_min=data_min, data_max=data_max)
             train_data_combined = variable_time_collate_fn(train_data, device, classify=args.classif, data_min=data_min, data_max=data_max)
             val_data_combined = variable_time_collate_fn(
                 val_data, device, classify=args.classif, data_min=data_min, data_max=data_max)

@@ -88,7 +88,7 @@ n_runs = 1  # change this from 1 to 1, in order to save debugging time.
 n_splits = 5  # change this from 5 to 1, in order to save debugging time.
 subset = True  # use subset for better debugging in local PC, which only contains 1200 patients
 
-split_type = 'age'   # possible values: 'random', 'age', 'gender'
+split_type = 'random'   # possible values: 'random', 'age', 'gender'
 
 acc_arr = np.zeros((n_splits, n_runs))
 auprc_arr = np.zeros((n_splits, n_runs))
