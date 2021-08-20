@@ -1,2 +1,2 @@
 # Raindrop
-Raindrop strategy for Irregular time series
+Raindrop model for Irregular time series
