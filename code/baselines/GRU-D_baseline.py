@@ -2,8 +2,10 @@
 Code originates from GRUD_mean.ipynb from gitHub repository https://github.com/Han-JD/GRU-D.
 """
 
-import sys
-sys.path.append('../')
+# import sys
+# sys.path.append('../')
+from models_baselines import GRUD
+
 
 import torch
 import numpy as np
@@ -19,7 +21,6 @@ from sklearn.metrics import roc_curve, auc, roc_auc_score, confusion_matrix
 from sklearn.metrics import average_precision_score
 from utils_baselines import random_sample
 
-from models import GRUD
 
 
 def count_parameters(model):
@@ -244,6 +245,7 @@ def train_gru_d(num_runs, input_size, hidden_size, output_size, num_layers, drop
 
         model = GRUD(input_size=input_size, hidden_size=hidden_size, output_size=output_size, dropout=dropout,
                      dropout_type='mloss', x_mean=x_mean, num_layers=num_layers)
+        model = model
         # print('number of parameters : ', count_parameters(model))
         # print(list(model.parameters())[0].requires_grad)
 
@@ -480,9 +482,9 @@ def train_gru_d(num_runs, input_size, hidden_size, output_size, num_layers, drop
     print('AUROC    = %.1f +/- %.1f' % (mean_auc, std_auc))
     print('AUPRC    = %.1f +/- %.1f' % (mean_aupr, std_aupr))
 
-    # show AUROC on test data for last trained epoch
-    test_preds, test_labels = epoch_losses[-1][8], epoch_losses[-1][11]
-    plot_roc_and_auc_score(test_preds, test_labels, 'GRU-D')
+    # #show AUROC on test data for last trained epoch
+    # test_preds, test_labels = epoch_losses[-1][8], epoch_losses[-1][11]
+    # plot_roc_and_auc_score(test_preds, test_labels, 'GRU-D')
 
 
 def plot_roc_and_auc_score(outputs, labels, title):

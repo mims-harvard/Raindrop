@@ -8,7 +8,8 @@ import os
 import wandb
 
 # wandb.offline
-os.environ['WANDB_SILENT']="true"
+# os.environ['WANDB_SILENT']="true"
+
 wandb.login(key=str('14734fe9c5574e019e8f517149a20d6fe1b2fd0d'))
 config = wandb.config
 # run = wandb.init(project='WBtest', config={'wandb_nb':'wandb_three_in_one_hm'})
@@ -21,7 +22,7 @@ from sklearn.metrics import average_precision_score
 import sys
 # os.path.abspath('../')
 # sys.path.append(os.path.abspath('../'))
-from models_baselines import TransformerModel, TransformerModel2
+from models_baselines import TransformerModel, TransformerModel2, SEFT
 from utils_baselines import *
 
 # from utils_phy12 import *
@@ -32,9 +33,9 @@ torch.manual_seed(1)
 arch = 'standard'
 
 
-model_path = '../models/'
+model_path = '../../models/'
 
-base_path = '../P12data'
+base_path = '../../P12data'
 # ### show the names of variables and statistic descriptors
 # ts_params = np.load(base_path + '/processed_data/ts_params.npy', allow_pickle=True)
 # extended_static_params = np.load(base_path + '/processed_data/extended_static_params.npy', allow_pickle=True)
@@ -168,7 +169,10 @@ for k in range(n_splits):
         print('- - Run %d - -' % (m + 1))
 
         # instantiate model
-        model = TransformerModel2(d_inp, d_model, nhead, nhid, nlayers, dropout, max_len,
+        # model = TransformerModel2(d_inp, d_model, nhead, nhid, nlayers, dropout, max_len,
+        #                           d_static, MAX, 0.5, aggreg, n_classes)
+
+        model = SEFT(d_inp, d_model, nhead, nhid, nlayers, dropout, max_len,
                                   d_static, MAX, 0.5, aggreg, n_classes)
 
         #         model = TransformerModel2(d_inp, d_model, nhead, nhid, nlayers, dropout, max_len,
@@ -259,6 +263,8 @@ for k in range(n_splits):
             """Training performance"""
             train_probs = torch.squeeze(torch.sigmoid(outputs))
             train_probs = train_probs.cpu().detach().numpy()
+            train_probs = np.nan_to_num(train_probs)
+
             train_y = y.cpu().detach().numpy()
             train_auroc = roc_auc_score(train_y, train_probs[:, 1])
             train_auprc = average_precision_score(train_y, train_probs[:, 1])
@@ -280,6 +286,7 @@ for k in range(n_splits):
                     out_val = evaluate_standard(model, Pval_tensor, Pval_time_tensor, Pval_static_tensor)
                     out_val = torch.squeeze(torch.sigmoid(out_val))
                     out_val = out_val.detach().cpu().numpy()
+                    out_val = np.nan_to_num(out_val)
 
                     # denoms = np.sum(np.exp(out_val), axis=1).reshape((-1, 1))
                     # probs = np.exp(out_val) / denoms
@@ -322,8 +329,8 @@ for k in range(n_splits):
 
         with torch.no_grad():
             out_test = evaluate(model, Ptest_tensor, Ptest_time_tensor, Ptest_static_tensor).numpy()
+            out_test = np.nan_to_num(out_test)  # if there is nan, convert to 0.
             ypred = np.argmax(out_test, axis=1)
-
 
             denoms = np.sum(np.exp(out_test), axis=1).reshape((-1, 1))
             probs = np.exp(out_test) / denoms
@@ -359,6 +366,6 @@ print('AUROC    = %.1f +/- %.1f' % (mean_auroc, std_auroc))
 wandb.finish()
 
 # save in numpy file
-np.save('./results/' + arch + '_phy12_setfunction.npy', [acc_vec, auprc_vec, auroc_vec])
+# np.save('./results/' + arch + '_phy12_setfunction.npy', [acc_vec, auprc_vec, auroc_vec])
 
 
