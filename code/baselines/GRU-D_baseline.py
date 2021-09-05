@@ -4,7 +4,7 @@ Code originates from GRUD_mean.ipynb from gitHub repository https://github.com/H
 
 # import sys
 # sys.path.append('../')
-from models_baselines import GRUD
+from models import GRUD
 
 
 import torch

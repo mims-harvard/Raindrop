@@ -11,7 +11,7 @@ import torch.optim as optim
 from utils_baselines import *
 from sklearn.metrics import roc_auc_score, average_precision_score, confusion_matrix
 
-from models_baselines import Transformer_P12, TransformerModel2
+from models import Transformer_P12, TransformerModel2
 
 
 def number_parameters(model):

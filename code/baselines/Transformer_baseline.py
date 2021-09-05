@@ -21,7 +21,7 @@ from sklearn.metrics import average_precision_score
 import sys
 # os.path.abspath('../')
 # sys.path.append(os.path.abspath('../'))
-from models_baselines import TransformerModel, TransformerModel2
+from models import TransformerModel, TransformerModel2
 from utils_baselines import *
 
 # from utils_phy12 import *
@@ -32,9 +32,9 @@ torch.manual_seed(1)
 arch = 'standard'
 
 
-model_path = '../models/'
+model_path = '../../models/'
 
-base_path = '../P12data'
+base_path = '../../P12data'
 # ### show the names of variables and statistic descriptors
 # ts_params = np.load(base_path + '/processed_data/ts_params.npy', allow_pickle=True)
 # extended_static_params = np.load(base_path + '/processed_data/extended_static_params.npy', allow_pickle=True)
@@ -83,7 +83,7 @@ n_classes = 2
 MAX = 100
 
 n_runs = 1  # change this from 1 to 1, in order to save debugging time.
-n_splits = 1  # change this from 5 to 1, in order to save debugging time.
+n_splits = 5  # change this from 5 to 1, in order to save debugging time.
 subset = False  # use subset for better debugging in local PC, which only contains 1200 patients
 
 acc_arr = np.zeros((n_splits, n_runs))
@@ -97,21 +97,19 @@ for k in range(n_splits):
     else:
         split_path = '/splits/phy12_split' + str(split_idx) + '.npy'
 
-    # prepare the data
-    Ptrain, Pval, Ptest, ytrain, yval, ytest = get_data_split(base_path, split_path)
+    # prepare the data:
+    """split_type = 'random', 'age', 'gender"""
+    """reverse= True: male, age<65 for training. 
+     reverse=False: female, age>65 for training"""
+    """baseline=True: run baselines. False: run our model (Raindrop)"""
+    split = 'random'
+    reverse = True
+    baseline = True
+
+    Ptrain, Pval, Ptest, ytrain, yval, ytest = get_data_split(base_path, split_path, split_type=split, reverse=reverse,
+                                                              baseline=baseline)
     print(len(Ptrain), len(Pval), len(Ptest), len(ytrain), len(yval), len(ytest))
 
-    # """New split"""
-    # normalization = False
-    # imputation_method = None  # possible values: None, 'mean', 'forward', 'kNN', 'MICE' (slow execution), 'CubicSpline'
-    # split_type = 'random'  # possible values: 'random', 'age', 'gender'
-    # feature_removal_level = 'set'  # possible values: 'sample', 'set'
-    # # missing_ratio = 0.0     # ratio [0, 1] of missing variables in validation and test set
-    #
-    # (X_features_train, X_static_train, X_time_train, y_train), (X_features_val, X_static_val, X_time_val, y_val), (
-    # X_features_test, X_static_test, X_time_test, y_test) = \
-    #     read_and_prepare_data(base_path, split_path, normalization, feature_removal_level, missing_ratio,
-    #                           imputation=imputation_method, split_type=split_type)
 
     T, F = Ptrain[0]['arr'].shape
     D = len(Ptrain[0]['extended_static'])
@@ -346,6 +344,9 @@ acc_vec = [acc_arr[k, idx_max[k]] for k in range(n_splits)]
 auprc_vec = [auprc_arr[k, idx_max[k]] for k in range(n_splits)]
 auroc_vec = [auroc_arr[k, idx_max[k]] for k in range(n_splits)]
 
+print("split type:{}, reverse:{}, using baseline:{}".format(split, reverse, baseline))
+
+
 # display mean and standard deviation
 mean_acc, std_acc = np.mean(acc_vec), np.std(acc_vec)
 mean_auprc, std_auprc = np.mean(auprc_vec), np.std(auprc_vec)
@@ -358,7 +359,7 @@ print('AUROC    = %.1f +/- %.1f' % (mean_auroc, std_auroc))
 # Mark the run as finished
 wandb.finish()
 
-# save in numpy file
-np.save('./results/' + arch + '_phy12_setfunction.npy', [acc_vec, auprc_vec, auroc_vec])
+# # save in numpy file
+# np.save('./results/' + arch + '_phy12_setfunction.npy', [acc_vec, auprc_vec, auroc_vec])
 
 

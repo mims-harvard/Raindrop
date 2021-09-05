@@ -22,7 +22,7 @@ from sklearn.metrics import average_precision_score
 import sys
 # os.path.abspath('../')
 # sys.path.append(os.path.abspath('../'))
-from models_baselines import TransformerModel, TransformerModel2, SEFT
+from models import TransformerModel, TransformerModel2, SEFT
 from utils_baselines import *
 
 # from utils_phy12 import *
@@ -98,8 +98,17 @@ for k in range(n_splits):
     else:
         split_path = '/splits/phy12_split' + str(split_idx) + '.npy'
 
-    # prepare the data
-    Ptrain, Pval, Ptest, ytrain, yval, ytest = get_data_split(base_path, split_path)
+    # prepare the data:
+    """split_type = 'random', 'age', 'gender"""
+    """reverse= True: male, age<65 for training. 
+     reverse=False: female, age>65 for training"""
+    """baseline=True: run baselines. False: run our model (Raindrop)"""
+    split = 'age'
+    reverse = False
+    baseline = True
+
+    Ptrain, Pval, Ptest, ytrain, yval, ytest = get_data_split(base_path, split_path, split_type=split, reverse=reverse,
+                                                              baseline=baseline)
     print(len(Ptrain), len(Pval), len(Ptest), len(ytrain), len(yval), len(ytest))
 
     # """New split"""
@@ -352,6 +361,8 @@ idx_max = np.argmax(auprc_arr, axis=1)
 acc_vec = [acc_arr[k, idx_max[k]] for k in range(n_splits)]
 auprc_vec = [auprc_arr[k, idx_max[k]] for k in range(n_splits)]
 auroc_vec = [auroc_arr[k, idx_max[k]] for k in range(n_splits)]
+
+print("split type:{}, reverse:{}, using baseline:{}".format(split, reverse, baseline))
 
 # display mean and standard deviation
 mean_acc, std_acc = np.mean(acc_vec), np.std(acc_vec)
