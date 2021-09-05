@@ -112,7 +112,7 @@ def compute_losses(dim, dec_train_batch, qz0_mean, qz0_logvar, pred_x, args, dev
 
 
 def evaluate_classifier(model, test_loader, dec=None, args=None, classifier=None,
-                        dim=41, device='cpu', reconst=False, num_sample=1):   # todo
+                        dim=41, device='cuda', reconst=False, num_sample=1):   # todo
     pred = []
     true = []
     test_loss = 0
@@ -412,7 +412,7 @@ def get_physionet_data(args, device, q, upsampling_batch, split_type, feature_re
         else:
             train_data_combined = variable_time_collate_fn(
                 train_data, device, classify=args.classif, data_min=data_min, data_max=data_max)
-            print(train_data_combined.size(), test_data_combined.size())
+            # print(train_data_combined.size(), test_data_combined.size())
 
         train_dataloader = DataLoader(
             train_data_combined, batch_size=batch_size, shuffle=False)

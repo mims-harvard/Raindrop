@@ -24,8 +24,8 @@ def get_data_min_max(records, device):
 				batch_min.append(inf)
 				batch_max.append(-inf)
 			else:
-				batch_min.append(torch.min(non_missing_vals))
-				batch_max.append(torch.max(non_missing_vals))
+				batch_min.append(torch.min(non_missing_vals).cuda())
+				batch_max.append(torch.max(non_missing_vals).cuda())
 
 		batch_min = torch.stack(batch_min)
 		batch_max = torch.stack(batch_max)

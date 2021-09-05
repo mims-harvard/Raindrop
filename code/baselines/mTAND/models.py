@@ -70,7 +70,7 @@ class multiTimeAttention(nn.Module):
     
 class enc_mtan_rnn(nn.Module):
     def __init__(self, input_dim, query, latent_dim=2, nhidden=16, 
-                 embed_time=16, num_heads=1, learn_emb=False, device='cpu'):   # todo
+                 embed_time=16, num_heads=1, learn_emb=False, device='cuda'):   # todo
         super(enc_mtan_rnn, self).__init__()
         self.embed_time = embed_time
         self.dim = input_dim
