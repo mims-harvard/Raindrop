@@ -48,7 +48,7 @@ class NoamOpt:
         self.optimizer.zero_grad()
 
 
-def get_data_split(base_path, split_path, split_type='random'):
+def get_data_split(base_path, split_path, split_type='random', reverse=False, baseline=True):
     # load data
     Pdict_list = np.load(base_path + '/processed_data/PTdict_list.npy', allow_pickle=True)
     arr_outcomes = np.load(base_path + '/processed_data/arr_outcomes.npy', allow_pickle=True)
@@ -113,30 +113,48 @@ def get_data_split(base_path, split_path, split_type='random'):
     # np.save('saved/idx_male.npy', np.array(idx_male), allow_pickle=True)
     # np.save('saved/idx_female.npy', np.array(idx_female), allow_pickle=True)
 
-    transformer_path = False
+    transformer_path = True
+    if baseline==True:
+        BL_path = ''
+    else:
+        BL_path = 'baselines/'
 
     if split_type == 'random':
         # load random indices from a split
         idx_train, idx_val, idx_test = np.load(base_path + split_path, allow_pickle=True)
         #     print(len(idx_train), len(idx_val), len(idx_test))
     elif split_type == 'age':
-        if transformer_path:    # relative path for for Transformer_baseline.py
-            idx_train = np.load('saved/idx_under_65.npy', allow_pickle=True)
-            idx_vt = np.load('saved/idx_over_65.npy', allow_pickle=True)
-        else:   # relative path for for set_function_baseline.py
-            idx_train = np.load('baselines/saved/idx_under_65.npy', allow_pickle=True)
-            idx_vt = np.load('baselines/saved/idx_over_65.npy', allow_pickle=True)
+        if reverse==False:
+            idx_train = np.load(BL_path+'saved/idx_under_65.npy', allow_pickle=True)
+            idx_vt = np.load(BL_path+'saved/idx_over_65.npy', allow_pickle=True)
+        elif reverse ==True:
+            idx_train =  np.load(BL_path+'saved/idx_over_65.npy', allow_pickle=True)
+            idx_vt = np.load(BL_path+'saved/idx_under_65.npy', allow_pickle=True)
+
+        # if transformer_path:    # relative path for for Transformer_baseline.py
+        #     idx_train = np.load('saved/idx_under_65.npy', allow_pickle=True)
+        #     idx_vt = np.load('saved/idx_over_65.npy', allow_pickle=True)
+        # else:   # relative path for for set_function_baseline.py
+        #     idx_train = np.load('baselines/saved/idx_under_65.npy', allow_pickle=True)
+        #     idx_vt = np.load('baselines/saved/idx_over_65.npy', allow_pickle=True)
 
         np.random.shuffle(idx_vt)
         idx_val = idx_vt[:round(len(idx_vt) / 2)]
         idx_test = idx_vt[round(len(idx_vt) / 2):]
     elif split_type == 'gender':
-        if transformer_path:    # relative path for for Transformer_baseline.py
-            idx_train = np.load('saved/idx_male.npy', allow_pickle=True)
-            idx_vt = np.load('saved/idx_female.npy', allow_pickle=True)
-        else:   # relative path for for set_function_baseline.py
-            idx_train = np.load('baselines/saved/idx_male.npy', allow_pickle=True)
-            idx_vt = np.load('baselines/saved/idx_female.npy', allow_pickle=True)
+        if reverse == False:
+            idx_train = np.load(BL_path+'saved/idx_male.npy', allow_pickle=True)
+            idx_vt = np.load(BL_path+'saved/idx_female.npy', allow_pickle=True)
+        elif reverse == True:
+            idx_train = np.load(BL_path+'saved/idx_female.npy', allow_pickle=True)
+            idx_vt = np.load(BL_path+'saved/idx_male.npy', allow_pickle=True)
+
+        # if transformer_path:    # relative path for for Transformer_baseline.py
+        #     idx_train = np.load('saved/idx_male.npy', allow_pickle=True)
+        #     idx_vt = np.load('saved/idx_female.npy', allow_pickle=True)
+        # else:   # relative path for for set_function_baseline.py
+        #     idx_train = np.load('baselines/saved/idx_male.npy', allow_pickle=True)
+        #     idx_vt = np.load('baselines/saved/idx_female.npy', allow_pickle=True)
 
         np.random.shuffle(idx_vt)
         idx_val = idx_vt[:round(len(idx_vt) / 2)]
@@ -294,6 +312,14 @@ def tensorize_normalize(P, y, mf, stdf, ms, ss):
     y_tensor = torch.Tensor(y_tensor[:, 0]).type(torch.LongTensor)  # change type to LongTensor, shape: [960]
     return P_tensor, P_static_tensor, P_time, y_tensor
 
+def masked_softmax(A, epsilon=0.000000001):
+    # matrix A is the one you want to do mask softmax at dim=1
+    A_max = torch.max(A, dim=1, keepdim=True)[0]
+    A_exp = torch.exp(A - A_max)
+    A_exp = A_exp * (A != 0).float()  # this step masks
+    # A_softmax = A_exp / torch.sum(A_exp, dim=1, keepdim=True)
+    A_softmax = A_exp / (torch.sum(A_exp, dim=0, keepdim=True) + epsilon) # softmax by column
+    return A_softmax
 
 def random_sample(idx_0, idx_1, B, replace=False):
     """ Returns a balanced sample of tensors by randomly sampling without replacement. """
@@ -339,7 +365,6 @@ def evaluate_standard(model, P_tensor, P_time_tensor, P_static_tensor, batch_siz
 
     lengths = torch.sum(P_time_tensor > 0, dim=0)
     out= model.forward(P_tensor, P_static_tensor, P_time_tensor, lengths)
-
     return out
 
 # Adam using warmup
