@@ -46,20 +46,133 @@ class NoamOpt:
     def zero_grad(self):
         self.optimizer.zero_grad()
 
+def random_split(n=11988, train_ratio=0.8, val_ratio=0.1, test_ratio=0.1):
+    """Use 9:1:1 split"""
+    p_train = train_ratio
+    p_val = val_ratio
+    p_test = test_ratio
 
-def get_data_split(base_path, split_path):
+    n = 11988  # original 12000 patients, remove 12 outliers
+    n_train = round(n * p_train)
+    n_val = round(n * p_val)
+    n_test = n - (n_train + n_val)
+    p = np.random.permutation(n)
+    idx_train = p[:n_train]
+    idx_val = p[n_train:n_train + n_val]
+    idx_test = p[n_train + n_val:]
+    return idx_train, idx_val, idx_test
+
+def get_data_split(base_path, split_path, split_type='random', reverse=False, baseline=True):
     # load data
     Pdict_list = np.load(base_path + '/processed_data/PTdict_list.npy', allow_pickle=True)
     arr_outcomes = np.load(base_path + '/processed_data/arr_outcomes.npy', allow_pickle=True)
-
     #     print(len(Pdict_list), arr_outcomes.shape)
 
     # Pdict_list = np.load(base_path + '/PTdict_list.npy', allow_pickle=True)
     # arr_outcomes = np.load(base_path + '/arr_outcomes.npy', allow_pickle=True)
 
-    # load indices from a split
-    idx_train, idx_val, idx_test = np.load(base_path + split_path, allow_pickle=True)
-    #     print(len(idx_train), len(idx_val), len(idx_test))
+    show_statistics = False
+    if show_statistics:
+        idx_under_65 = []
+        idx_over_65 = []
+
+        idx_male = []
+        idx_female = []
+
+        # variables for statistics
+        all_ages = []
+        female_count = 0
+        male_count = 0
+        all_BMI = []
+
+        X_static = np.zeros((len(Pdict_list), len(Pdict_list[0]['extended_static'])))
+        for i in range(len(Pdict_list)):
+            X_static[i] = Pdict_list[i]['extended_static']
+            age, gender_0, gender_1, height, _, _, _, _, weight = X_static[i]
+            if age > 0:
+                all_ages.append(age)
+                if age < 65:
+                    idx_under_65.append(i)
+                else:
+                    idx_over_65.append(i)
+            if gender_0 == 1:
+                female_count += 1
+                idx_female.append(i)
+            if gender_1 == 1:
+                male_count += 1
+                idx_male.append(i)
+            if height > 0 and weight > 0:
+                all_BMI.append(weight / ((height / 100) ** 2))
+
+        # plot statistics
+        plt.hist(all_ages, bins=[i * 10 for i in range(12)])
+        plt.xlabel('Years')
+        plt.ylabel('# people')
+        plt.title('Histogram of patients ages, age known in %d samples.\nMean: %.1f, Std: %.1f, Median: %.1f' %
+                  (len(all_ages), np.mean(np.array(all_ages)), np.std(np.array(all_ages)), np.median(np.array(all_ages))))
+        plt.show()
+
+        plt.hist(all_BMI, bins=[5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60])
+        all_BMI = np.array(all_BMI)
+        all_BMI = all_BMI[(all_BMI > 10) & (all_BMI < 65)]
+        plt.xlabel('BMI')
+        plt.ylabel('# people')
+        plt.title('Histogram of patients BMI, height and weight known in %d samples.\nMean: %.1f, Std: %.1f, Median: %.1f' %
+                  (len(all_BMI), np.mean(all_BMI), np.std(all_BMI), np.median(all_BMI)))
+        plt.show()
+        print('\nGender known: %d,  Male count: %d,  Female count: %d\n' % (male_count + female_count, male_count, female_count))
+
+    # np.save('saved/idx_under_65.npy', np.array(idx_under_65), allow_pickle=True)
+    # np.save('saved/idx_over_65.npy', np.array(idx_over_65), allow_pickle=True)
+    # np.save('saved/idx_male.npy', np.array(idx_male), allow_pickle=True)
+    # np.save('saved/idx_female.npy', np.array(idx_female), allow_pickle=True)
+
+    transformer_path = True
+    if baseline==True:
+        BL_path = ''
+    else:
+        BL_path = 'baselines/'
+
+    if split_type == 'random':
+        # load random indices from a split
+        idx_train, idx_val, idx_test = np.load(base_path + split_path, allow_pickle=True)
+        #     print(len(idx_train), len(idx_val), len(idx_test))
+    elif split_type == 'age':
+        if reverse==False:
+            idx_train = np.load(BL_path+'saved/idx_under_65.npy', allow_pickle=True)
+            idx_vt = np.load(BL_path+'saved/idx_over_65.npy', allow_pickle=True)
+        elif reverse ==True:
+            idx_train =  np.load(BL_path+'saved/idx_over_65.npy', allow_pickle=True)
+            idx_vt = np.load(BL_path+'saved/idx_under_65.npy', allow_pickle=True)
+
+        # if transformer_path:    # relative path for for Transformer_baseline.py
+        #     idx_train = np.load('saved/idx_under_65.npy', allow_pickle=True)
+        #     idx_vt = np.load('saved/idx_over_65.npy', allow_pickle=True)
+        # else:   # relative path for for set_function_baseline.py
+        #     idx_train = np.load('baselines/saved/idx_under_65.npy', allow_pickle=True)
+        #     idx_vt = np.load('baselines/saved/idx_over_65.npy', allow_pickle=True)
+
+        np.random.shuffle(idx_vt)
+        idx_val = idx_vt[:round(len(idx_vt) / 2)]
+        idx_test = idx_vt[round(len(idx_vt) / 2):]
+    elif split_type == 'gender':
+        if reverse == False:
+            idx_train = np.load(BL_path+'saved/idx_male.npy', allow_pickle=True)
+            idx_vt = np.load(BL_path+'saved/idx_female.npy', allow_pickle=True)
+        elif reverse == True:
+            idx_train = np.load(BL_path+'saved/idx_female.npy', allow_pickle=True)
+            idx_vt = np.load(BL_path+'saved/idx_male.npy', allow_pickle=True)
+
+        # if transformer_path:    # relative path for for Transformer_baseline.py
+        #     idx_train = np.load('saved/idx_male.npy', allow_pickle=True)
+        #     idx_vt = np.load('saved/idx_female.npy', allow_pickle=True)
+        # else:   # relative path for for set_function_baseline.py
+        #     idx_train = np.load('baselines/saved/idx_male.npy', allow_pickle=True)
+        #     idx_vt = np.load('baselines/saved/idx_female.npy', allow_pickle=True)
+
+        np.random.shuffle(idx_vt)
+        idx_val = idx_vt[:round(len(idx_vt) / 2)]
+        idx_test = idx_vt[round(len(idx_vt) / 2):]
 
     # extract train/val/test examples
     Ptrain = Pdict_list[idx_train]
@@ -79,6 +192,45 @@ def get_data_split(base_path, split_path):
     # print(mort_train, mort_val, mort_test)  # All around 0.14
 
     return Ptrain, Pval, Ptest, ytrain, yval, ytest
+
+# def get_data_split(base_path, split_path):
+#     # load data
+#     Pdict_list = np.load(base_path + '/processed_data/PTdict_list.npy', allow_pickle=True)
+#     arr_outcomes = np.load(base_path + '/processed_data/arr_outcomes.npy', allow_pickle=True)
+#
+#     #     print(len(Pdict_list), arr_outcomes.shape)
+#
+#     # Pdict_list = np.load(base_path + '/PTdict_list.npy', allow_pickle=True)
+#     # arr_outcomes = np.load(base_path + '/arr_outcomes.npy', allow_pickle=True)
+#
+#     # load indices from a split
+#     if split_path is not None:
+#         idx_train, idx_val, idx_test = np.load(base_path + split_path, allow_pickle=True)
+#     else:
+#         idx_train, idx_val, idx_test = random_split(n=11988, train_ratio=0.8, val_ratio=0.1, test_ratio=0.1)
+#
+#
+#
+#
+#
+#     # extract train/val/test examples
+#     Ptrain = Pdict_list[idx_train]
+#     Pval = Pdict_list[idx_val]
+#     Ptest = Pdict_list[idx_test]
+#
+#     # extract mortality labels
+#     y = arr_outcomes[:, -1].reshape((-1, 1))
+#     ytrain = y[idx_train]
+#     yval = y[idx_val]
+#     ytest = y[idx_test]
+#
+#     # # check mortality rates in each set
+#     # mort_train = np.sum(ytrain)/len(ytrain)
+#     # mort_val   = np.sum(yval)/len(yval)
+#     # mort_test  = np.sum(ytest)/len(ytest)
+#     # print(mort_train, mort_val, mort_test)  # All around 0.14
+#
+#     return Ptrain, Pval, Ptest, ytrain, yval, ytest
 
 
 # obtain mean, std statistics on train-set
@@ -167,7 +319,7 @@ def getStats_static(P_tensor):
     # ['Age' 'Gender=0' 'Gender=1' 'Height' 'ICUType=1' 'ICUType=2' 'ICUType=3' 'ICUType=4' 'Weight']
     bool_categorical = [0, 1, 1, 0, 1, 1, 1, 1, 0]
     for s in range(S):
-        if bool_categorical[s] == 0:  # if not categorical
+        if bool_categorical == 0:  # if not categorical
             vals_s = Ps[s, :]
             vals_s = vals_s[vals_s > 0]
             ms[s] = np.mean(vals_s)
@@ -216,6 +368,14 @@ def tensorize_normalize(P, y, mf, stdf, ms, ss):
     y_tensor = torch.Tensor(y_tensor[:, 0]).type(torch.LongTensor)  # change type to LongTensor, shape: [960]
     return P_tensor, P_static_tensor, P_time, y_tensor
 
+def masked_softmax(A, epsilon=0.000000001):
+    # matrix A is the one you want to do mask softmax at dim=1
+    A_max = torch.max(A, dim=1, keepdim=True)[0]
+    A_exp = torch.exp(A - A_max)
+    A_exp = A_exp * (A != 0).float()  # this step masks
+    # A_softmax = A_exp / torch.sum(A_exp, dim=1, keepdim=True)
+    A_softmax = A_exp / (torch.sum(A_exp, dim=0, keepdim=True) + epsilon) # softmax by column
+    return A_softmax
 
 def random_sample(idx_0, idx_1, B, replace=False):
     """ Returns a balanced sample of tensors by randomly sampling without replacement. """
@@ -242,14 +402,16 @@ def evaluate(model, P_tensor, P_time_tensor, P_static_tensor, batch_size=100, n_
         Ptime = P_time_tensor[:, start:start + batch_size]
         Pstatic = P_static_tensor[start:start + batch_size]
         lengths = torch.sum(Ptime > 0, dim=0)
-        out[start:start + batch_size] = model.forward(P, Pstatic, Ptime, lengths).detach().cpu()
+        middleoutput, _, _ = model.forward(P, Pstatic, Ptime, lengths)
+        out[start:start + batch_size] = middleoutput.detach().cpu()
         start += batch_size
     if rem > 0:
         P = P_tensor[:, start:start + rem, :]
         Ptime = P_time_tensor[:, start:start + rem]
         Pstatic = P_static_tensor[start:start + rem]
         lengths = torch.sum(Ptime > 0, dim=0)
-        out[start:start + rem] = model.forward(P, Pstatic, Ptime, lengths).detach().cpu()
+        whatever, _,  _ = model.forward(P, Pstatic, Ptime, lengths)
+        out[start:start + rem] = whatever.detach().cpu()
     return out
 
 """Xiang:"""
@@ -260,7 +422,7 @@ def evaluate_standard(model, P_tensor, P_time_tensor, P_static_tensor, batch_siz
     P_static_tensor = P_static_tensor.cuda()
 
     lengths = torch.sum(P_time_tensor > 0, dim=0)
-    out= model.forward(P_tensor, P_static_tensor, P_time_tensor, lengths)
+    out, _, _ = model.forward(P_tensor, P_static_tensor, P_time_tensor, lengths)
 
     return out
 
