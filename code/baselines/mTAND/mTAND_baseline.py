@@ -38,17 +38,19 @@ parser.add_argument('--classify-pertp', action='store_true')
 args = parser.parse_args(args=[])
 
 if __name__ == '__main__':
-    missing_ratios = [0.0, 0.2, 0.4, 0.6, 0.8, 1.0]   # ratios [0, 1] of missing variables in validation and test set
+    missing_ratios = [0.1, 0.3, 0.4, 0.5]  # ratios [0, 1] of missing variables in validation and test set
+    #     missing_ratios = [0.0, 0.1, 0.2, 0.3, 0.4, 0.5]
     for missing_ratio in missing_ratios:
         acc_all = []
         auc_all = []
         aupr_all = []
         upsampling_batch = True
+
         split_type = 'random'  # possible values: 'random', 'age', 'gender'
         feature_removal_level = 'set'  # possible values: 'sample', 'set'
         num_runs = 5
         for r in range(num_runs):
-            experiment_id = int(SystemRandom().random()*100000)
+            experiment_id = int(SystemRandom().random() * 100000)
             if r == 0:
                 print(args, experiment_id)
             seed = args.seed
@@ -61,10 +63,11 @@ if __name__ == '__main__':
 
             # device = 'cpu'  # todo
             args.classif = True
-            args.niters = 20    # number of epochs
+            args.niters = 20  # number of epochs
 
             if args.dataset == 'physionet':
-                data_obj = utils.get_physionet_data(args, device, args.quantization, upsampling_batch, split_type, feature_removal_level, missing_ratio)
+                data_obj = utils.get_physionet_data(args, device, args.quantization, upsampling_batch, split_type,
+                                                    feature_removal_level, missing_ratio)
             # elif args.dataset == 'mimiciii':
             #     data_obj = utils.get_mimiciii_data(args)
             # elif args.dataset == 'activity':
@@ -107,13 +110,13 @@ if __name__ == '__main__':
                 train_loss = 0
                 train_n = 0
                 train_acc = 0
-                #avg_reconst, avg_kl, mse = 0, 0, 0
+                # avg_reconst, avg_kl, mse = 0, 0, 0
                 start_time = time.time()
                 for train_batch, label in train_loader:
                     train_batch, label = train_batch.to(device), label.to(device)
                     batch_len = train_batch.shape[0]
                     observed_data, observed_mask, observed_tp \
-                        = train_batch[:, :, :dim], train_batch[:, :, dim:2*dim], train_batch[:, :, -1]
+                        = train_batch[:, :, :dim], train_batch[:, :, dim:2 * dim], train_batch[:, :, -1]
                     out = rec(torch.cat((observed_data, observed_mask), 2), observed_tp)
                     if args.classify_pertp:
                         N = label.size(-1)
@@ -137,8 +140,10 @@ if __name__ == '__main__':
                 val_loss, val_acc, val_auc, val_aupr = utils.evaluate_classifier(rec, val_loader, args=args, dim=dim)
                 best_val_loss = min(best_val_loss, val_loss)
 
-                print('Val: Iter: {}, loss: {:.4f}, acc: {:.4f}, val_loss: {:.4f}, val_acc: {:.2f}, val_AUROC: {:.2f}, val_AUPRC: {:.2f}'
-                      .format(itr, train_loss / train_n, train_acc / train_n, val_loss, val_acc * 100, val_auc * 100, val_aupr * 100))
+                print(
+                    'VALIDATION: Iter: {}, loss: {:.4f}, acc: {:.4f}, val_loss: {:.4f}, val_acc: {:.2f}, val_AUROC: {:.2f}, val_AUPRC: {:.2f}'
+                    .format(itr, train_loss / train_n, train_acc / train_n, val_loss, val_acc * 100, val_auc * 100,
+                            val_aupr * 100))
 
                 # save the best model based on 'aupr'
                 if val_aupr > best_aupr_val:
@@ -162,7 +167,8 @@ if __name__ == '__main__':
             # test set
             rec = torch.load(saved_model_path)
             test_loss, test_acc, test_auc, test_aupr = utils.evaluate_classifier(rec, test_loader, args=args, dim=dim)
-            print("TEST: test_acc: %.2f, aupr_test: %.2f, auc_test: %.2f\n" % (test_acc * 100, test_aupr * 100, test_auc * 100))
+            print("TEST: test_acc: %.2f, aupr_test: %.2f, auc_test: %.2f\n" % (
+            test_acc * 100, test_aupr * 100, test_auc * 100))
 
             acc_all.append(test_acc * 100)
             auc_all.append(test_auc * 100)
@@ -177,7 +183,8 @@ if __name__ == '__main__':
         mean_auc, std_auc = np.mean(auc_all), np.std(auc_all)
         mean_aupr, std_aupr = np.mean(aupr_all), np.std(aupr_all)
         print('------------------------------------------')
+        print("split:{}, set/sample-level: {}, missing ratio:{}".format(split_type, feature_removal_level,
+                                                                        missing_ratios))
         print('Accuracy = %.1f +/- %.1f' % (mean_acc, std_acc))
         print('AUROC    = %.1f +/- %.1f' % (mean_auc, std_auc))
         print('AUPRC    = %.1f +/- %.1f' % (mean_aupr, std_aupr))
-
