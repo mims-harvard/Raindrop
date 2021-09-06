@@ -152,12 +152,13 @@ def evaluate_classifier(model, test_loader, dec=None, args=None, classifier=None
         true.append(label.cpu().numpy())
     pred = np.concatenate(pred, 0)
     true = np.concatenate(true, 0)
-    print('Non-zero predictions = ', np.count_nonzero(np.argmax(pred, axis=1)))
+
     acc = np.mean(pred.argmax(1) == true)
     auc = metrics.roc_auc_score(true, pred[:, 1]) if not args.classify_pertp else 0.
     aupr = average_precision_score(true, pred[:, 1]) if not args.classify_pertp else 0.
 
-    print(confusion_matrix(true, np.argmax(pred, axis=1), labels=[0, 1]))
+    # print('Non-zero predictions = ', np.count_nonzero(np.argmax(pred, axis=1)))
+    # print(confusion_matrix(true, np.argmax(pred, axis=1), labels=[0, 1]))
 
     return test_loss/pred.shape[0], acc, auc, aupr
 

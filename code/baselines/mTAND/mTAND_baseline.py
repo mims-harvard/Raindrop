@@ -24,8 +24,9 @@ parser.add_argument('--n', type=int, default=8000)
 parser.add_argument('--batch-size', type=int, default=128)
 parser.add_argument('--quantization', type=float, default=0.016,
                     help="Quantization on the physionet dataset.")
-parser.add_argument('--classif', action='store_true', 
+parser.add_argument('--classif', default=True, action='store_true',
                     help="Include binary classification loss")
+
 parser.add_argument('--learn-emb', action='store_true')
 parser.add_argument('--num-heads', type=int, default=1)
 parser.add_argument('--freq', type=float, default=10.)
@@ -33,8 +34,8 @@ parser.add_argument('--dataset', type=str, default='physionet')
 parser.add_argument('--old-split', type=int, default=1)
 parser.add_argument('--nonormalize', action='store_true')
 parser.add_argument('--classify-pertp', action='store_true')
-args = parser.parse_args()
-
+# args = parser.parse_args()
+args = parser.parse_args(args=[])
 
 if __name__ == '__main__':
     missing_ratios = [0.0, 0.2, 0.4, 0.6, 0.8, 1.0]   # ratios [0, 1] of missing variables in validation and test set
@@ -59,6 +60,7 @@ if __name__ == '__main__':
             print('we are using:{}'.format(device))
 
             # device = 'cpu'  # todo
+            args.classif = True
             args.niters = 20    # number of epochs
 
             if args.dataset == 'physionet':
@@ -77,12 +79,12 @@ if __name__ == '__main__':
             if args.enc == 'mtan_enc':
                 rec = models.enc_mtan_classif(
                     dim, torch.linspace(0, 1., 128), args.rec_hidden,
-                    args.embed_time, args.num_heads, args.learn_emb, args.freq).to(device)
+                    args.embed_time, args.num_heads, args.learn_emb, args.freq, device=device).to(device)
 
             elif args.enc == 'mtan_enc_activity':
                 rec = models.enc_mtan_classif_activity(
                     dim, args.rec_hidden, args.embed_time,
-                    args.num_heads, args.learn_emb, args.freq).to(device)
+                    args.num_heads, args.learn_emb, args.freq, device=device).to(device)
 
             params = (list(rec.parameters()))
             if r == 0:
@@ -135,7 +137,7 @@ if __name__ == '__main__':
                 val_loss, val_acc, val_auc, val_aupr = utils.evaluate_classifier(rec, val_loader, args=args, dim=dim)
                 best_val_loss = min(best_val_loss, val_loss)
 
-                print('VALIDATION: Iter: {}, loss: {:.4f}, acc: {:.4f}, val_loss: {:.4f}, val_acc: {:.2f}, val_AUROC: {:.2f}, val_AUPRC: {:.2f}'
+                print('Val: Iter: {}, loss: {:.4f}, acc: {:.4f}, val_loss: {:.4f}, val_acc: {:.2f}, val_AUROC: {:.2f}, val_AUPRC: {:.2f}'
                       .format(itr, train_loss / train_n, train_acc / train_n, val_loss, val_acc * 100, val_auc * 100, val_aupr * 100))
 
                 # save the best model based on 'aupr'
