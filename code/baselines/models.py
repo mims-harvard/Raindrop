@@ -31,9 +31,12 @@ class PositionalEncodingTF(nn.Module):
     def getPE(self, P_time):  # P_time.shape = [215, 128]
         B = P_time.shape[1]
 
+        P_time = P_time.float()
+
         timescales = self.max_len ** np.linspace(0, 1, self._num_timescales)  # shape: (16,). A sequence from 1  to 215 with 16 elements
 
         times = torch.Tensor(P_time.cpu()).unsqueeze(2)  # shape: [215, 128, 1]  # max_len x B
+
         scaled_time = times / torch.Tensor(timescales[None, None, :])  # shape [215, 128, 16]
         """Use a 32-D embedding to represent a single time point."""
         pe = torch.cat([torch.sin(scaled_time), torch.cos(scaled_time)], axis=-1)  # T x B x d_model
@@ -232,20 +235,35 @@ class SEFT(nn.Module):
         d_pe = int(perc * d_model)
         d_enc = d_model - d_pe
 
+        # d_pe = 16
+
+
         self.pos_encoder = PositionalEncodingTF(d_pe, max_len, MAX)
 
-        self.d_K = 68  # 36 = 2*(16+1+1), 16 is positional encoding dimension
+        self.pos_encoder_value = PositionalEncodingTF(d_pe, max_len, MAX)
+        self.pos_encoder_sensor = PositionalEncodingTF(d_pe, max_len, MAX)
+
+        self.linear_value = nn.Linear(1, 16)
+        self.linear_sensor = nn.Linear(1, 16)
+
+        # self.d_K = 2*(d_pe+2)  # 36 = 2*(16+1+1), 16 is positional encoding dimension
+        self.d_K = 2 * (d_pe*3)
+
+
         encoder_layers = TransformerEncoderLayer(self.d_K, nhead, nhid, dropout)
         self.transformer_encoder = TransformerEncoder(encoder_layers, nlayers)
 
-        self.encoder = nn.Linear(d_inp, d_enc)
-        self.d_model = d_model
+        encoder_layers_f_prime = TransformerEncoderLayer(int(self.d_K//2), 2, nhid, dropout)
+        self.transformer_encoder_f_prime = TransformerEncoder(encoder_layers_f_prime, 2)
+
+        # self.encoder = nn.Linear(d_inp, d_enc)
+        # self.d_model = d_model
 
         self.emb = nn.Linear(d_static, 16)
 
-        self.proj_weight = Parameter(torch.Tensor(self.d_K, 32))
+        self.proj_weight = Parameter(torch.Tensor(self.d_K, 128))
 
-        d_fi = 32 + 16
+        d_fi = 128 + 16
         self.mlp = nn.Sequential(
             nn.Linear(d_fi, d_fi),
             nn.ReLU(),
@@ -253,6 +271,7 @@ class SEFT(nn.Module):
         )
 
         self.aggreg = aggreg
+        # self.bn = nn.BatchNorm1d(50)
 
         self.relu = nn.ReLU()
         self.dropout = nn.Dropout(dropout)
@@ -260,8 +279,10 @@ class SEFT(nn.Module):
 
     def init_weights(self):
         initrange = 1e-10
-        self.encoder.weight.data.uniform_(-initrange, initrange)
+        # self.encoder.weight.data.uniform_(-initrange, initrange)
         self.emb.weight.data.uniform_(-initrange, initrange)
+        self.linear_value.weight.data.uniform_(-initrange, initrange)
+        self.linear_sensor.weight.data.uniform_(-initrange, initrange)
         xavier_uniform_(self.proj_weight)
 
     def forward(self, src, static, times, lengths):
@@ -281,51 +302,40 @@ class SEFT(nn.Module):
             time_points = time_sequence[time_index]  # t in SEFT paper
             pe_ = self.pos_encoder(time_points.unsqueeze(1)).squeeze(1)
             variable = nonzero_index[:,1] # the dimensions of variables. The m value in SEFT paper.
-            unit = torch.cat([pe_, values.unsqueeze(1), variable.unsqueeze(1)], dim=1)
-            f_prime = torch.mean(unit, dim=0) # [435, 34] --> [1,34]
+
+            # unit = torch.cat([pe_, values.unsqueeze(1), variable.unsqueeze(1)], dim=1)
+
+            # """positional encoding"""  AUROC ~0.86 Why positional encoding works?
+            # values_ = self.pos_encoder_value(values.unsqueeze(1)).squeeze(1)
+            variable_ = self.pos_encoder_sensor(variable.unsqueeze(1)).squeeze(1)
+
+            """linear mapping""" # AUROC~0.8
+            # values_ =  self.linear_value(values.float().unsqueeze(1)).squeeze(1)
+            # variable_ = self.linear_sensor(variable.float().unsqueeze(1)).squeeze(1)
+
+            """Nonlinear transformation""" # AUROC ~0.8
+            values_ =  F.relu(self.linear_value(values.float().unsqueeze(1))).squeeze(1)
+            # variable_ =  F.relu(self.linear_sensor(variable.float().unsqueeze(1))).squeeze(1)
+
+            unit = torch.cat([pe_, values_, variable_], dim=1)
+            """Add Normalization across samples here, to make all 48-dimensions are in similar scale"""
+            unit = F.normalize(unit, dim=1)
+
+            # """use 2-layer transformer to get f'"""
+            # trans_unit = self.transformer_encoder_f_prime(unit.unsqueeze(1))
+            # f_prime = torch.mean(trans_unit, dim=0) # [435, 34] --> [1,34]
+
+            f_prime = torch.mean(unit, dim=0)
 
             x = torch.cat([f_prime.repeat(unit.shape[0], 1), unit], dim=1)
-            x = x.unsqueeze(1)#.repeat(1,2,1)  # shape[469, 2, 68]
+            x = x.unsqueeze(1) #.repeat(1,2,1)  # shape[469, 2, 68]
             output_unit = self.transformer_encoder(x)
             output_unit = torch.mean(output_unit, dim=0)
             output[i,:] = output_unit
         # print(output.shape)
         output = output.matmul(self.proj_weight)  # dimension: 68-->32
 
-
-
-        # src = self.encoder(src) * math.sqrt(self.d_model)  # linear layer: 72 --> 32
-
-        # pe = self.pos_encoder(times)  # times.shape = [215, 128], the values are hours.
-        # # pe.shape = [215, 128, 32]
-
-        # """Here are two options: plus or concat"""
-        # src = torch.cat([pe, src], axis=2)  # shape: [215, 128, 64]
-        #
-        # src = self.dropout(src)
-
-        emb = self.emb(static)  # emb.shape = [128, 64]. Linear layer: 9--> 64
-
-        # append context on front
-        # """215-D for time series and 1-D for static info"""
-        # x = src  # shape [215, 128, 64]
-
-
-
-
-        # """mask out the all-zero rows. """
-        # # mask = torch.arange(maxlen + 1)[None, :] >= (lengths.cpu()[:, None] + 1)
-        # mask = torch.arange(maxlen)[None, :] >= (lengths.cpu()[:, None])
-        # mask = mask.squeeze(1).cuda()  # shape: [128, 216]
-        #
-        # output = self.transformer_encoder(x, src_key_padding_mask=mask) # output.shape: [216, 128, 64]
-        # # masked aggregation
-        # mask2 = mask.permute(1, 0).unsqueeze(2).long()  # [216, 128, 1]
-        # if self.aggreg == 'mean':
-        #     lengths2 = lengths.unsqueeze(1)
-        #     output = torch.sum(output * (1 - mask2), dim=0) / (lengths2 + 1)
-        # elif self.aggreg == 'max':
-        #     output, _ = torch.max(output * ((mask2 == 0) * 1.0 + (mask2 == 1) * -10.0), dim=0)
+        emb = self.emb(static)  # Linear layer: 9--> 16
 
         # feed through MLP
         output = torch.cat([emb, output], dim=1)  # x.shape: [216, 128, 64]

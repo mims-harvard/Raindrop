@@ -62,17 +62,19 @@ d_static = 9
 d_inp = 36 * 2 # concat mask in mask_normalize function
 # d_inp = 36*1  # doesn't has concat mask
 
-d_model = 64  # 256
-nhid = 2 * d_model
+d_model = 32  # 256
+nhid = 128
+
 # nhid = 256
 # nhid = 512  # seems to work better than 2*d_model=256
 # nhid = 1024
-nlayers = 1 #2  # the layer doesn't really matters
+
+nlayers = 2 #2  # the layer doesn't really matters
 
 # nhead = 16 # seems to work better
-nhead = 4  # 8, 16, 32
+nhead = 4 # 8, 16, 32
 
-dropout = 0.3
+dropout = 0.2
 
 max_len = 215
 
@@ -92,6 +94,7 @@ auprc_arr = np.zeros((n_splits, n_runs))
 auroc_arr = np.zeros((n_splits, n_runs))
 for k in range(n_splits):
     split_idx = k + 1
+    # split_idx =
     print('Split id: %d' % split_idx)
     if subset==True:
         split_path = '/splits/phy12_split_subset' + str(split_idx) + '.npy'
@@ -103,7 +106,7 @@ for k in range(n_splits):
     """reverse= True: male, age<65 for training. 
      reverse=False: female, age>65 for training"""
     """baseline=True: run baselines. False: run our model (Raindrop)"""
-    split = 'age'
+    split = 'random'
     reverse = False
     baseline = True
 
@@ -195,7 +198,7 @@ for k in range(n_splits):
 
         optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=0.1,
-                                                               patience=1, threshold=0.0001, threshold_mode='rel',
+                                                               patience=1, threshold=0.001, threshold_mode='rel',
                                                                cooldown=0, min_lr=1e-8, eps=1e-08, verbose=True)
 
         idx_0 = np.where(ytrain == 0)[0]
@@ -297,12 +300,7 @@ for k in range(n_splits):
                     out_val = out_val.detach().cpu().numpy()
                     out_val = np.nan_to_num(out_val)
 
-                    # denoms = np.sum(np.exp(out_val), axis=1).reshape((-1, 1))
-                    # probs = np.exp(out_val) / denoms
-                    # ypred = np.argmax(out_val, axis=1)
-
                     val_loss = criterion(torch.from_numpy(out_val), torch.from_numpy(yval.squeeze(1)))
-
                     auc_val = roc_auc_score(yval, out_val[:, 1])
                     aupr_val = average_precision_score(yval, out_val[:, 1])
                     print("Validataion: Epoch %d,  val_loss:%.4f, aupr_val: %.2f, auc_val: %.2f" % (epoch,
@@ -322,7 +320,6 @@ for k in range(n_splits):
                         print(
                             "**[S] Epoch %d, aupr_val: %.4f, auc_val: %.4f **" % (epoch, aupr_val * 100, auc_val * 100))
                         torch.save(model.state_dict(), model_path + arch + '_' + str(split_idx) + '.pt')
-
             # if epoch == 3:
             #     end = time.time()
             #     time_elapsed = end - start
@@ -350,7 +347,6 @@ for k in range(n_splits):
             print('Testing: AUROC = %.2f | AUPRC = %.2f | Accuracy = %.2f' % (auc * 100, aupr * 100, acc * 100))
             print('classification report', classification_report(ytest, ypred))
             print(confusion_matrix(ytest, ypred, labels=[0, 1]))
-
         # store
         acc_arr[k, m] = acc * 100
         auprc_arr[k, m] = aupr * 100
