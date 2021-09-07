@@ -248,7 +248,7 @@ def random_sample(idx_0, idx_1, batch_size):
     return idx
 
 
-def get_physionet_data(args, device, q, upsampling_batch, split_type, feature_removal_level, missing_ratio, flag=1):
+def get_physionet_data(args, device, q, upsampling_batch, split_type, feature_removal_level, missing_ratio, flag=1, reverse=False):
     train_dataset_obj_1 = PhysioNet('data/physionet', train=True,
                                   quantization=q,
                                   download=True, n_samples=12000,
@@ -323,11 +323,19 @@ def get_physionet_data(args, device, q, upsampling_batch, split_type, feature_re
                                                                  shuffle=True)
     elif split_type == 'age' or split_type == 'gender':
         if split_type == 'age':
-            idx_train = np.load('mtand_idx_under_65.npy', allow_pickle=True)
-            idx_vt = np.load('mtand_idx_over_65.npy', allow_pickle=True)
-        else:  # split_type == 'gender':
-            idx_train = np.load('mtand_idx_male.npy', allow_pickle=True)
-            idx_vt = np.load('mtand_idx_female.npy', allow_pickle=True)
+            if reverse== False:
+                idx_train = np.load('mtand_idx_under_65.npy', allow_pickle=True)
+                idx_vt = np.load('mtand_idx_over_65.npy', allow_pickle=True)
+            else:
+                idx_train = np.load('mtand_idx_over_65.npy', allow_pickle=True)
+                idx_vt =  np.load('mtand_idx_under_65.npy', allow_pickle=True)
+        elif split_type == 'gender':
+            if reverse== False:
+                idx_train = np.load('mtand_idx_male.npy', allow_pickle=True)
+                idx_vt = np.load('mtand_idx_female.npy', allow_pickle=True)
+            else:
+                idx_train = np.load('mtand_idx_female.npy', allow_pickle=True)
+                idx_vt = np.load('mtand_idx_male.npy', allow_pickle=True)
 
         np.random.shuffle(idx_train)
         np.random.shuffle(idx_vt)
