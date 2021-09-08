@@ -37,7 +37,7 @@ args = parser.parse_args()
 
 
 if __name__ == '__main__':
-    missing_ratios = [0.0, 0.2, 0.4, 0.6, 0.8, 1.0]   # ratios [0, 1] of missing variables in validation and test set
+    missing_ratios = [0.0, 0.1, 0.2, 0.3, 0.4, 0.5]   # ratios [0, 1] of missing variables in validation and test set
     for missing_ratio in missing_ratios:
         acc_all = []
         auc_all = []

@@ -245,7 +245,7 @@ def train_gru_d(num_runs, input_size, hidden_size, output_size, num_layers, drop
 
         model = GRUD(input_size=input_size, hidden_size=hidden_size, output_size=output_size, dropout=dropout,
                      dropout_type='mloss', x_mean=x_mean, num_layers=num_layers)
-        model = model
+        # model = model
         # print('number of parameters : ', count_parameters(model))
         # print(list(model.parameters())[0].requires_grad)
 
@@ -501,8 +501,8 @@ def plot_roc_and_auc_score(outputs, labels, title):
 
 
 if __name__ == '__main__':
-    # missing_ratios = [0.0, 0.2, 0.4, 0.6, 0.8, 1.0]   # ratios [0, 1] of missing variables in validation and test set
-    missing_ratios = [0.5]
+    # missing_ratios = [0.0, 0.1, 0.2, 0.3, 0.4, 0.5]   # ratios [0, 1] of missing variables in validation and test set
+    missing_ratios = [0.0]
     for missing_ratio in missing_ratios:
         num_runs = 5
         input_size = 33   # num of variables base on the paper
