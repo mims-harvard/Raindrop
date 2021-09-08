@@ -3,6 +3,9 @@
 # Author: Xiang Zhang
 # Last updated: 2021
 
+wandb = False
+
+
 import numpy as np
 
 import torch
@@ -10,12 +13,14 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 import os
-import wandb
-os.environ['WANDB_SILENT']="true"
 
-wandb.login(key=str('14734fe9c5574e019e8f517149a20d6fe1b2fd0d'))
-config = wandb.config
-run = wandb.init(project='Raindrop', entity='xiang_zhang', config={'wandb_nb':'wandb_three_in_one_hm'})
+if wandb:
+    import wandb
+    os.environ['WANDB_SILENT']="true"
+
+    wandb.login(key=str('14734fe9c5574e019e8f517149a20d6fe1b2fd0d'))
+    config = wandb.config
+    run = wandb.init(project='Raindrop', entity='xiang_zhang', config={'wandb_nb':'wandb_three_in_one_hm'})
 
 from sklearn.metrics import roc_auc_score, classification_report, confusion_matrix, average_precision_score, accuracy_score
 from models_rd import *
@@ -272,8 +277,8 @@ for k in range(n_splits):
         #         optimizer = NoamOpt(d_model, 5.0, 500, torch.optim.Adam(model.parameters(), lr=0, betas=(0.9, 0.98), eps=1e-9))
 
         start = time.time()
-
-        wandb.watch(model)
+        if wandb:
+            wandb.watch(model)
         for epoch in range(num_epochs):
             if epoch==0: # the first batch don't propogate error
                 model.eval()
@@ -337,7 +342,8 @@ for k in range(n_splits):
             # print("Train: Epoch %d, train loss:%.4f, train_auprc: %.2f, train_auroc: %.2f" % (
             # epoch, loss.item(),  train_auprc * 100, train_auroc * 100))
 
-            wandb.log({"train_loss": loss.item(),  "train_auprc": train_auprc, "train_auroc": train_auroc}) #"epoch":epoch,
+            if wandb:
+                wandb.log({"train_loss": loss.item(),  "train_auprc": train_auprc, "train_auroc": train_auroc}) #"epoch":epoch,
             if epoch == num_epochs-1:
                 print("training CM", confusion_matrix(train_y, np.argmax(train_probs, axis=1), labels=[0, 1]))
 
@@ -371,8 +377,9 @@ for k in range(n_splits):
                     print("Validataion: Epoch %d,  val_loss:%.4f, acc_val:%.2f, aupr_val: %.2f, auc_val: %.2f" % (epoch,
                       val_loss.item(), acc_val*100, aupr_val * 100, auc_val * 100))
 
-                    wandb.log({ "val_loss": val_loss.item(), "val_auprc": aupr_val,
-                               "val_auroc": auc_val})
+                    if wandb:
+                        wandb.log({ "val_loss": val_loss.item(), "val_auprc": aupr_val,
+                                   "val_auroc": auc_val})
 
                     if epoch == num_epochs - 1:
                         print("Val CM", confusion_matrix(yval, np.argmax(out_val, axis=1), labels=[0, 1]))
@@ -418,7 +425,8 @@ for k in range(n_splits):
             print('classification report', classification_report(ytest, ypred))
             print(confusion_matrix(ytest, ypred, labels=[0, 1]))
 
-            wandb.log({ "z_test_auroc": auc, "z_test_auprc": aupr})
+            if wandb:
+                wandb.log({ "z_test_auroc": auc, "z_test_auprc": aupr})
         # store
         acc_arr[k, m] = acc * 100
         auprc_arr[k, m] = aupr * 100
@@ -442,7 +450,8 @@ print('AUPRC    = %.1f +/- %.1f' % (mean_auprc, std_auprc))
 print('AUROC    = %.1f +/- %.1f' % (mean_auroc, std_auroc))
 
 # Mark the run as finished
-wandb.finish()
+if wandb:
+    wandb.finish()
 
 # # save in numpy file
 # np.save('./results/' + arch + '_phy12.npy', [acc_vec, auprc_vec, auroc_vec])
