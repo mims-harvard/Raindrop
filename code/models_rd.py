@@ -5,7 +5,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from torch.nn.parameter import Parameter
-from torch_geometric.nn import TransformerConv
+# from torch_geometric.nn import TransformerConv
+from transformer_conv import TransformerConv
+
 from sklearn.metrics.pairwise import cosine_similarity
 
 
@@ -1318,25 +1320,23 @@ class Raindrop(nn.Module):
         # self.adj = Parameter(torch.Tensor(36, 36))  # random initialize edges
         self.adj = torch.ones([36, 36]).cuda()  # complete graph
 
-        """For GIN"""
+        # """For GIN"""
         self.dim = int(d_model/d_inp) # the output dim of each node in graph
-        in_D, hidden_D = 1, self.dim  # each timestamp input 2 value, map to self.dim dimension feature, output is self.dim
-        self.GINstep1 = GINConv(
-            Sequential(Linear(in_D, hidden_D), BatchNorm1d(hidden_D), ReLU(),
-                       Linear(hidden_D, hidden_D), ReLU()))
+        # in_D, hidden_D = 1, self.dim  # each timestamp input 2 value, map to self.dim dimension feature, output is self.dim
+        # self.GINstep1 = GINConv(
+        #     Sequential(Linear(in_D, hidden_D), BatchNorm1d(hidden_D), ReLU(),
+        #                Linear(hidden_D, hidden_D), ReLU()))
 
 
         self.transconv  = TransformerConv(in_channels=36, out_channels=36*self.dim, heads=1) # the head is concated. So the output dimension is out_channels*heads
 
-        # self.GIN_middlesteps = GINConv(
-        #     Sequential(Linear(hidden_D, hidden_D), BatchNorm1d(hidden_D), ReLU(),
-        #                Linear(hidden_D, hidden_D), ReLU()))
 
-        self.GINmlp = nn.Sequential(
-            nn.Linear(self.dim+d_static, self.dim+d_static),  # self.dim for observation,d_static for static info
-            nn.ReLU(),
-            nn.Linear(self.dim+d_static, n_classes),
-        )
+
+        # self.GINmlp = nn.Sequential(
+        #     nn.Linear(self.dim+d_static, self.dim+d_static),  # self.dim for observation,d_static for static info
+        #     nn.ReLU(),
+        #     nn.Linear(self.dim+d_static, n_classes),
+        # )
 
         d_final = 36*(self.dim+1) + d_model # using transformer in step 3, nhid = 36*4
         # d_final = 2*self.node_dim +9  # this is not as good as the previous line
