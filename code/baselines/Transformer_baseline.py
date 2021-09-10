@@ -26,7 +26,7 @@ import sys
 # os.path.abspath('../')
 # sys.path.append(os.path.abspath('../'))
 
-from models import TransformerModel, TransformerModel2
+from models import TransformerModel, TransformerModel2, Simple_classifier
 from utils_baselines import *
 
 # from utils_phy12 import *
@@ -58,7 +58,9 @@ extended_static_params=['Age', 'Gender=0', 'Gender=1', 'Height', 'ICUType=1', 'I
 
 
 feature_removal_level = 'sample'   # possible values: 'sample', 'set'
-missing_ratios = [0.0, 0.1, 0.2, 0.3, 0.4, 0.5]
+# missing_ratios = [0.0, 0.1, 0.2, 0.3, 0.4, 0.5]
+
+missing_ratios = [0.5]
 for missing_ratio in missing_ratios:
     # training/model params
     num_epochs = 20
@@ -67,10 +69,10 @@ for missing_ratio in missing_ratios:
     d_static = 9
     # emb_len     = 10
 
-    d_inp = 36 * 2 # concat mask in mask_normalize function
-    # d_inp = 36*1  # doesn't has concat mask
+    # d_inp = 36 * 2 # concat mask in mask_normalize function
+    d_inp = 36*1  # doesn't has concat mask
 
-    d_model = 64  # 256
+    d_model = 36  # 256
     nhid = 2 * d_model
     # nhid = 256
     # nhid = 512  # seems to work better than 2*d_model=256
@@ -78,7 +80,7 @@ for missing_ratio in missing_ratios:
     nlayers = 1 #2  # the layer doesn't really matters
 
     # nhead = 16 # seems to work better
-    nhead = 4  # 8, 16, 32
+    nhead = 1  # 8, 16, 32
 
     dropout = 0.3
 
@@ -148,47 +150,32 @@ for missing_ratio in missing_ratios:
 
         # remove part of variables in validation and test set
         if missing_ratio > 0:
-            num_all_features = int(Pval_tensor.shape[2] / 2)  # divided by 2, because of mask
+            num_all_features = Pval_tensor.shape[2] # int(Pval_tensor.shape[2] / 2)#  Pval_tensor.shape[2] #   # divided by 2, because of mask
             num_missing_features = round(missing_ratio * num_all_features)
             if feature_removal_level == 'sample':
                 for i, patient in enumerate(Pval_tensor):
                     idx = np.random.choice(num_all_features, num_missing_features, replace=False)
                     patient[:, idx] = torch.zeros(Pval_tensor.shape[1], num_missing_features)  # values
-                    patient[:, idx + num_all_features] = torch.zeros(Pval_tensor.shape[1], num_missing_features)  # masks
+                    # patient[:, idx + num_all_features] = torch.zeros(Pval_tensor.shape[1], num_missing_features)  # masks
                     Pval_tensor[i] = patient
                 for i, patient in enumerate(Ptest_tensor):
                     idx = np.random.choice(num_all_features, num_missing_features, replace=False)
                     patient[:, idx] = torch.zeros(Ptest_tensor.shape[1], num_missing_features)   # values
-                    patient[:, idx + num_all_features] = torch.zeros(Ptest_tensor.shape[1], num_missing_features)  # masks
+                    # patient[:, idx + num_all_features] = torch.zeros(Ptest_tensor.shape[1], num_missing_features)  # masks
                     Ptest_tensor[i] = patient
             elif feature_removal_level == 'set':
                 density_score_indices = np.load('saved/density_scores.npy', allow_pickle=True)[:, 0]
+                # num_missing_features = num_missing_features * 2
                 idx = density_score_indices[:num_missing_features].astype(int)
                 Pval_tensor[:, :, idx] = torch.zeros(Pval_tensor.shape[0], Pval_tensor.shape[1], num_missing_features)   # values
-                Pval_tensor[:, :, idx + num_all_features] = torch.zeros(Pval_tensor.shape[0], Pval_tensor.shape[1], num_missing_features)  # masks
+                # Pval_tensor[:, :, idx + num_all_features] = torch.zeros(Pval_tensor.shape[0], Pval_tensor.shape[1], num_missing_features)  # masks
                 Ptest_tensor[:, :, idx] = torch.zeros(Ptest_tensor.shape[0], Ptest_tensor.shape[1], num_missing_features)   # values
-                Ptest_tensor[:, :, idx + num_all_features] = torch.zeros(Ptest_tensor.shape[0], Ptest_tensor.shape[1], num_missing_features)  # masks
+                # Ptest_tensor[:, :, idx + num_all_features] = torch.zeros(Ptest_tensor.shape[0], Ptest_tensor.shape[1], num_missing_features)  # masks
 
         # convert to (seq_len, batch, feats)
         Ptrain_tensor = Ptrain_tensor.permute(1, 0, 2)  # shape: [215, 960, 72]
         Pval_tensor = Pval_tensor.permute(1, 0, 2)
         Ptest_tensor = Ptest_tensor.permute(1, 0, 2)
-
-        """Mask out some variables: [ 8, 14, 17, 20, 21, 22, 29, 30, 33] (sparse ratio>0.1)
-                    1. We train on all sensors, but testing with partial sensors
-                    2. Train and test on partial sensors. """
-        # # variable = [ 8, 14, 17, 20, 21, 22, 29, 30, 33]  # AUROC =76.5 if only keep these variables
-        #
-        # # AUROC =83.9 if only keep these variables; AUROC =75.1 (simple_classifier) if remove these variables; 77.4 (set function)
-        # variable = [ 8,  9, 10, 13, 14, 17, 18, 20, 21, 22, 24, 25, 27, 29, 30, 33, 35]
-        #
-        # # variable = [9, 10, 13, 18, 24, 25, 27, 35] # AUROC =79.7 if only keep these variables
-        # for i in range(36):
-        #     # if i not in variable:
-        #     if i in variable:
-        #     #     #Ptrain_tensor[:, :, i]=0
-        #         Pval_tensor[:, :, i] = 0
-        #         Ptest_tensor[:, :, i] = 0
 
         # convert to (seq_len, batch)
         Ptrain_time_tensor = Ptrain_time_tensor.squeeze(2).permute(1, 0)
@@ -201,11 +188,8 @@ for missing_ratio in missing_ratios:
             # instantiate model
             model = TransformerModel2(d_inp, d_model, nhead, nhid, nlayers, dropout, max_len,
                                       d_static, MAX, 0.5, aggreg, n_classes)
-
-            #         model = TransformerModel2(d_inp, d_model, nhead, nhid, nlayers, dropout, max_len,
-            #                                   d_static, MAX, 0.5, 'mean', n_classes)
-            #         model = TransformerModel(d_inp, d_model, nhead, nhid, nlayers, dropout, max_len,
-            #                                   d_static, MAX, n_classes)
+            # model = Simple_classifier(d_inp, d_model, nhead, nhid, nlayers, dropout, max_len,
+            #                           d_static, MAX, 0.5, aggreg, n_classes)
 
             model = model.cuda()
 
@@ -329,10 +313,10 @@ for missing_ratio in missing_ratios:
 
                         scheduler.step(aupr_val)
                         # save model
-                        if aupr_val > best_aupr_val:
-                            best_aupr_val = aupr_val
-                        # if auc_val > best_auc_val:
-                        #     best_auc_val = auc_val
+                        # if aupr_val > best_aupr_val:
+                        #     best_aupr_val = aupr_val
+                        if auc_val > best_auc_val:
+                            best_auc_val = auc_val
                             print(
                                 "**[S] Epoch %d, aupr_val: %.4f, auc_val: %.4f **" % (epoch, aupr_val * 100, auc_val * 100))
                             torch.save(model.state_dict(), model_path + arch + '_' + str(split_idx) + '.pt')
@@ -376,7 +360,8 @@ for missing_ratio in missing_ratios:
     auprc_vec = [auprc_arr[k, idx_max[k]] for k in range(n_splits)]
     auroc_vec = [auroc_arr[k, idx_max[k]] for k in range(n_splits)]
 
-    print("split type:{}, reverse:{}, using baseline:{}".format(split, reverse, baseline))
+    print("missing ratio:{}, split type:{}, reverse:{}, using baseline:{}".format(missing_ratio, split, reverse, baseline))
+
 
 
     # display mean and standard deviation

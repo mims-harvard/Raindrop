@@ -25,7 +25,7 @@ import warnings
 import numbers
 
 class PositionalEncodingTF(nn.Module):
-    def __init__(self, d_model, max_len=500, MAX=10000):
+    def __init__(self, d_model, max_len=500, MAX=10000,):
         super(PositionalEncodingTF, self).__init__()
         self.max_len = max_len
         self.d_model = d_model
@@ -144,20 +144,21 @@ class TransformerModel2(nn.Module):
         from torch.nn import TransformerEncoder, TransformerEncoderLayer
         self.model_type = 'Transformer'
 
-        d_pe = int(perc * d_model)
-        d_enc = d_model - d_pe
+        d_pe = 16
+        d_enc = d_inp
 
         self.pos_encoder = PositionalEncodingTF(d_pe, max_len, MAX)
 
-        encoder_layers = TransformerEncoderLayer(d_model, nhead, nhid, dropout)
+        encoder_layers = TransformerEncoderLayer(d_pe+d_enc, nhead, nhid, dropout)
         self.transformer_encoder = TransformerEncoder(encoder_layers, nlayers)
 
         self.encoder = nn.Linear(d_inp, d_enc)
-        self.d_model = d_model
+        # self.d_model = d_model
 
-        self.emb = nn.Linear(d_static, 16)
+        self.emb = nn.Linear(d_static, d_inp)
 
-        d_fi = d_model + 16
+        # d_fi = d_pe+d_enc + 16 + d_inp
+        d_fi = d_pe+d_enc  + d_inp
         self.mlp = nn.Sequential(
             nn.Linear(d_fi, d_fi),
             nn.ReLU(),
@@ -179,7 +180,8 @@ class TransformerModel2(nn.Module):
         maxlen, batch_size = src.shape[0], src.shape[1]  # src.shape = [215, 128, 72]
 
         """Question: why 72 features (36 feature + 36 mask)?"""
-        src = self.encoder(src) * math.sqrt(self.d_model)  # linear layer: 72 --> 32
+        src = self.encoder(src) #* math.sqrt(self.d_model)  # linear layer: 72 --> 32
+
 
         pe = self.pos_encoder(times)  # times.shape = [215, 128], the values are hours.
         # pe.shape = [215, 128, 32]
@@ -204,7 +206,10 @@ class TransformerModel2(nn.Module):
 
         output = self.transformer_encoder(x, src_key_padding_mask=mask) # output.shape: [216, 128, 64]
 
-        # masked aggregation
+        """What if no transformer? just MLP, the performance is still good!!!"""
+        # output = x
+
+        # masked aggregation: this really matters.
         mask2 = mask.permute(1, 0).unsqueeze(2).long()  # [216, 128, 1]
         if self.aggreg == 'mean':
             lengths2 = lengths.unsqueeze(1)
@@ -212,8 +217,10 @@ class TransformerModel2(nn.Module):
         elif self.aggreg == 'max':
             output, _ = torch.max(output * ((mask2 == 0) * 1.0 + (mask2 == 1) * -10.0), dim=0)
 
+        # output = torch.sum(output , dim=0) / (lengths.unsqueeze(1) + 1)
+
         # feed through MLP
-        output = torch.cat([emb, output], dim=1)  # x.shape: [216, 128, 64]
+        output = torch.cat([output, emb], dim=1)  # x.shape: [216, 128, 64]
         output = self.mlp(output)  # two linears: 64-->64-->2
         return output
 
@@ -251,8 +258,8 @@ class SEFT(nn.Module):
         self.linear_value = nn.Linear(1, 16)
         self.linear_sensor = nn.Linear(1, 16)
 
-        # self.d_K = 2*(d_pe+2)  # 36 = 2*(16+1+1), 16 is positional encoding dimension
-        self.d_K = 2 * (d_pe*3)
+        self.d_K = 2*(d_pe+2)  # 36 = 2*(16+1+1), 16 is positional encoding dimension
+        # self.d_K = 2 * (d_pe*3)
 
 
         encoder_layers = TransformerEncoderLayer(self.d_K, nhead, nhid, dropout)
@@ -308,23 +315,23 @@ class SEFT(nn.Module):
             pe_ = self.pos_encoder(time_points.unsqueeze(1)).squeeze(1)
             variable = nonzero_index[:,1] # the dimensions of variables. The m value in SEFT paper.
 
-            # unit = torch.cat([pe_, values.unsqueeze(1), variable.unsqueeze(1)], dim=1)
+            unit = torch.cat([pe_, values.unsqueeze(1), variable.unsqueeze(1)], dim=1)
 
-            # """positional encoding"""  AUROC ~0.86 Why positional encoding works?
-            # values_ = self.pos_encoder_value(values.unsqueeze(1)).squeeze(1)
-            variable_ = self.pos_encoder_sensor(variable.unsqueeze(1)).squeeze(1)
-
-            """linear mapping""" # AUROC~0.8
-            # values_ =  self.linear_value(values.float().unsqueeze(1)).squeeze(1)
-            # variable_ = self.linear_sensor(variable.float().unsqueeze(1)).squeeze(1)
-
-            """Nonlinear transformation""" # AUROC ~0.8
-            values_ =  F.relu(self.linear_value(values.float().unsqueeze(1))).squeeze(1)
-            # variable_ =  F.relu(self.linear_sensor(variable.float().unsqueeze(1))).squeeze(1)
-
-            unit = torch.cat([pe_, values_, variable_], dim=1)
-            """Add Normalization across samples here, to make all 48-dimensions are in similar scale"""
-            unit = F.normalize(unit, dim=1)
+            # # """positional encoding"""  AUROC ~0.86 Why positional encoding works?
+            # # values_ = self.pos_encoder_value(values.unsqueeze(1)).squeeze(1)
+            # variable_ = self.pos_encoder_sensor(variable.unsqueeze(1)).squeeze(1)
+            #
+            # """linear mapping""" # AUROC~0.8
+            # # values_ =  self.linear_value(values.float().unsqueeze(1)).squeeze(1)
+            # # variable_ = self.linear_sensor(variable.float().unsqueeze(1)).squeeze(1)
+            #
+            # """Nonlinear transformation""" # AUROC ~0.8
+            # values_ =  F.relu(self.linear_value(values.float().unsqueeze(1))).squeeze(1)
+            # # variable_ =  F.relu(self.linear_sensor(variable.float().unsqueeze(1))).squeeze(1)
+            #
+            # unit = torch.cat([pe_, values_, variable_], dim=1)
+            # """Add Normalization across samples here, to make all 48-dimensions are in similar scale"""
+            # unit = F.normalize(unit, dim=1)
 
             # """use 2-layer transformer to get f'"""
             # trans_unit = self.transformer_encoder_f_prime(unit.unsqueeze(1))
@@ -1278,18 +1285,21 @@ class Simple_classifier(nn.Module):
             d_static, MAX, 0.5, aggreg, n_classes,
             (9, 100, 0.5, 'mean', 2) """
 
-        d_pe = 36 #int(perc * d_model)
-        d_enc = 36 #d_model - d_pe
+        d_pe = 16
+        d_enc = d_inp
 
         self.pos_encoder = PositionalEncodingTF(d_pe, max_len, MAX)
 
-        encoder_layers = TransformerEncoderLayer(d_model+36, nhead, nhid, dropout) # nhid is the number of hidden, 36 is the dim of timestamp
-
+        encoder_layers = TransformerEncoderLayer(d_pe + d_enc, nhead, nhid, dropout)
         self.transformer_encoder = TransformerEncoder(encoder_layers, nlayers)
 
-        self.dim = int(d_model / d_inp)
+        self.encoder = nn.Linear(d_inp, d_enc)
+        # self.d_model = d_model
 
-        d_final = 36*(self.dim+1) + d_model # using transformer in step 3, nhid = 36*4
+        self.emb = nn.Linear(d_static, d_inp)
+
+        # d_fi = d_pe+d_enc + 16 + d_inp
+        d_final =  d_enc +d_pe  + d_inp
         self.mlp_static = nn.Sequential(
             nn.Linear(d_final, d_final),
             nn.ReLU(),
@@ -1330,7 +1340,7 @@ class Simple_classifier(nn.Module):
         maxlen, batch_size = src.shape[0], src.shape[1]  # src.shape = [215, 128, 36]
 
         """Question: why 72 features (36 feature + 36 mask)?"""
-        src = self.encoder(src) * math.sqrt(self.d_model)  # linear layer: 36 --> 36 # Mapping
+        # src = self.encoder(src) * math.sqrt(self.d_model)  # linear layer: 36 --> 36 # Mapping
 
         # src = src* math.sqrt(self.d_model)
 
@@ -1343,10 +1353,6 @@ class Simple_classifier(nn.Module):
 
         # append context on front
         """215-D for time series and 1-D for static info"""
-
-
-
-
         """step 3: use transformer to aggregate temporal information; batchsize in the middle position"""
         """concat with timestamp"""
         r_out = torch.cat([src, pe], dim=-1)  # output shape: [215, 128, (36*4+36)]
@@ -1357,7 +1363,7 @@ class Simple_classifier(nn.Module):
         mask = torch.arange(maxlen + 1)[None, :] >= (lengths.cpu()[:, None] + 1)
         mask = mask.squeeze(1).cuda()  # shape: [128, 216]
 
-        masked_agg = True
+        masked_agg = False
         if masked_agg ==True:
             """ masked aggregation across rows"""
             # print('masked aggregation across rows')
@@ -1368,14 +1374,15 @@ class Simple_classifier(nn.Module):
                 output = torch.sum(r_out * (1 - mask2), dim=0) / (lengths2 + 1)
         elif masked_agg ==False:
             """Without masked aggregation across rows"""
-            output = r_out[-1, :, :].squeeze(0) # take the last step's output, shape[128, 36]
+            # output = r_out[-1, :, :].squeeze(0) # take the last step's output, shape[128, 36]
+            output = torch.sum(r_out, dim=0) / (lengths.unsqueeze(1) + 1)
 
         """concat static"""
 
-        output_ = torch.cat([output, emb], dim=1) # [128, 36*5+9] # emb with dim: d_model
-        output = self.mlp_static(output_)  # 45-->45-->2
+        output = torch.cat([output, emb], dim=1) # [128, 36*5+9] # emb with dim: d_model
+        output = self.mlp_static(output)  # 45-->45-->2
 
-        return output , 0, output_ # output_ is the learned feature
+        return output # , 0, output_ # output_ is the learned feature
 
 class Raindrop(nn.Module):
     ""
