@@ -248,59 +248,29 @@ def random_sample(idx_0, idx_1, batch_size):
     return idx
 
 
-def get_physionet_data(args, device, q, upsampling_batch, split_type, feature_removal_level, missing_ratio, flag=1, reverse=False):
-    train_dataset_obj_1 = PhysioNet('data/physionet', train=True,
-                                  quantization=q,
-                                  download=True, n_samples=12000,
-                                  device=device, set_letter='a')
-
-    train_dataset_obj_2 = PhysioNet('data/physionet', train=True,
-                                  quantization=q,
-                                  download=True, n_samples=12000,
-                                  device=device, set_letter='b')
-
-    train_dataset_obj_3 = PhysioNet('data/physionet', train=True,
-                                  quantization=q,
-                                  download=True, n_samples=12000,
-                                  device=device, set_letter='c')
-
-    # # Use custom collate_fn to combine samples with arbitrary time observations.
-    # # Returns the dataset along with mask and time steps
-    # test_dataset_obj = PhysioNet('data/physionet', train=False,
-    #                              quantization=q,
-    #                              download=True, n_samples=min(10000, args.n),
-    #                              device=device)
-
-    # Combine and shuffle samples from physionet Train and physionet Test
-    # total_dataset = train_dataset_obj[:len(train_dataset_obj)]
-
-    dataset_1 = train_dataset_obj_1[:len(train_dataset_obj_1)]
-    dataset_2 = train_dataset_obj_2[:len(train_dataset_obj_2)]
-    dataset_3 = train_dataset_obj_3[:len(train_dataset_obj_3)]
-
-    total_dataset = dataset_1 + dataset_2 + dataset_3
-
-    # if not args.classif:
-    #     # Concatenate samples from original Train and Test sets
-    #     # Only 'training' physionet samples are have labels.
-    #     # Therefore, if we do classifiction task, we don't need physionet 'test' samples.
-    #     total_dataset = total_dataset + \
-    #         test_dataset_obj[:len(test_dataset_obj)]
-
-    print('len(total_dataset):', len(total_dataset))
+def preprocess_P19(PT_dict, arr_outcomes, labels_ts):
+    total = []
+    for i, patient in enumerate(PT_dict):
+        length = patient['length']
+        record_id = patient['id']
+        tt = torch.squeeze(torch.tensor(patient['time'][:length]), 1)
+        vals = torch.tensor(patient['arr'][:length, :], dtype=torch.float32)
+        m = np.zeros(shape=patient['arr'][:length, :].shape)
+        m[patient['arr'][:length, :].nonzero()] = 1
+        mask = torch.tensor(m, dtype=torch.float32)
+        outcome = torch.tensor(arr_outcomes[i][0], dtype=torch.float32)
+        total.append((record_id, tt, vals, mask, outcome))
 
     '''
-    # calculate and save statistics
+    # calculate and save P19 statistics - age, gender, density scores (can be used for all algorithms)
     idx_under_65 = []
     idx_over_65 = []
     idx_male = []
     idx_female = []
 
-    P_list = np.load('P_list.npy', allow_pickle=True)
-
-    for i in range(len(P_list)):
-        if total_dataset[i][0] == P_list[i]['id']:
-            age, gender, _, _, _ = P_list[i]['static']
+    for i in range(len(PT_dict)):
+        if total[i][0] == PT_dict[i]['id']:
+            age, gender, _, _, _, _ = PT_dict[i]['extended_static']
             if age > 0:
                 if age < 65:
                     idx_under_65.append(i)
@@ -311,31 +281,178 @@ def get_physionet_data(args, device, q, upsampling_batch, split_type, feature_re
             if gender == 1:
                 idx_male.append(i)
 
-    np.save('mtand_idx_under_65.npy', np.array(idx_under_65), allow_pickle=True)
-    np.save('mtand_idx_over_65.npy', np.array(idx_over_65), allow_pickle=True)
-    np.save('mtand_idx_male.npy', np.array(idx_male), allow_pickle=True)
-    np.save('mtand_idx_female.npy', np.array(idx_female), allow_pickle=True)
+    np.save('P19_idx_under_65.npy', np.array(idx_under_65), allow_pickle=True)
+    np.save('P19_idx_over_65.npy', np.array(idx_over_65), allow_pickle=True)
+    np.save('P19_idx_male.npy', np.array(idx_male), allow_pickle=True)
+    np.save('P19_idx_female.npy', np.array(idx_female), allow_pickle=True)
+
+    # save density scores
+    X_features = np.array([d['arr'] for d in PT_dict])
+    counts = np.count_nonzero(X_features, axis=(0, 1))
+    ascending_indices = np.argsort(counts)
+    density_scores = counts / (X_features.shape[0] * 60)
+    res = [[ind, density_scores[ind], labels_ts[:-1][ind]] for ind in ascending_indices]
+    np.save('P19_density_scores.npy', res, allow_pickle=True)
     '''
+
+    return total
+
+
+def preprocess_eICU(PT_dict, arr_outcomes, labels_ts):
+    total = []
+    for i, patient in enumerate(PT_dict):
+        record_id = str(i)
+        tt = torch.squeeze(torch.tensor(patient['time']), 1)
+        vals = torch.tensor(patient['arr'], dtype=torch.float32)
+        m = np.zeros(shape=patient['arr'].shape)
+        m[patient['arr'].nonzero()] = 1
+        mask = torch.tensor(m, dtype=torch.float32)
+        outcome = torch.tensor(arr_outcomes[i], dtype=torch.float32)
+        total.append((record_id, tt, vals, mask, outcome))
+
+    '''
+    # calculate and save P19 statistics - gender, density scores (can be used for all algorithms)
+    idx_male = []
+    idx_female = []
+    for i in range(len(PT_dict)):
+        if total[i][0] == str(i):
+            vec = PT_dict[i]['extended_static']
+            if vec[-3] > 0:
+                idx_female.append(i)
+            if vec[-4] > 0:
+                idx_male.append(i)
+
+    print('\nOnly 1.329/36.443 samples have gender data available.\n')
+
+    np.save('eICU_idx_male.npy', np.array(idx_male), allow_pickle=True)
+    np.save('eICU_idx_female.npy', np.array(idx_female), allow_pickle=True)
+
+    # save density scores
+    X_features = np.array([d['arr'] for d in PT_dict])
+    counts = np.count_nonzero(X_features, axis=(0, 1))
+    ascending_indices = np.argsort(counts)
+    density_scores = counts / (X_features.shape[0] * 300)
+    res = [[ind, density_scores[ind], labels_ts[ind]] for ind in ascending_indices]
+    np.save('eICU_density_scores.npy', res, allow_pickle=True)
+    '''
+
+    return total
+
+
+def get_data(args, dataset, device, q, upsampling_batch, split_type, feature_removal_level, missing_ratio, flag=1, reverse=False):
+    if dataset == 'P12':
+        train_dataset_obj_1 = PhysioNet('data/physionet', train=True,
+                                        quantization=q,
+                                        download=True, n_samples=12000,
+                                        device=device, set_letter='a')
+
+        train_dataset_obj_2 = PhysioNet('data/physionet', train=True,
+                                      quantization=q,
+                                      download=True, n_samples=12000,
+                                      device=device, set_letter='b')
+
+        train_dataset_obj_3 = PhysioNet('data/physionet', train=True,
+                                      quantization=q,
+                                      download=True, n_samples=12000,
+                                      device=device, set_letter='c')
+
+        # # Use custom collate_fn to combine samples with arbitrary time observations.
+        # # Returns the dataset along with mask and time steps
+        # test_dataset_obj = PhysioNet('data/physionet', train=False,
+        #                              quantization=q,
+        #                              download=True, n_samples=min(10000, args.n),
+        #                              device=device)
+
+        # Combine and shuffle samples from physionet Train and physionet Test
+        # total_dataset = train_dataset_obj[:len(train_dataset_obj)]
+
+        dataset_1 = train_dataset_obj_1[:len(train_dataset_obj_1)]
+        dataset_2 = train_dataset_obj_2[:len(train_dataset_obj_2)]
+        dataset_3 = train_dataset_obj_3[:len(train_dataset_obj_3)]
+
+        total_dataset = dataset_1 + dataset_2 + dataset_3
+
+        '''
+        # calculate and save statistics
+        idx_under_65 = []
+        idx_over_65 = []
+        idx_male = []
+        idx_female = []
+
+        P_list = np.load('P_list.npy', allow_pickle=True)
+
+        for i in range(len(P_list)):
+            if total_dataset[i][0] == P_list[i]['id']:
+                age, gender, _, _, _ = P_list[i]['static']
+                if age > 0:
+                    if age < 65:
+                        idx_under_65.append(i)
+                    else:
+                        idx_over_65.append(i)
+                if gender == 0:
+                    idx_female.append(i)
+                if gender == 1:
+                    idx_male.append(i)
+
+        np.save('mtand_idx_under_65.npy', np.array(idx_under_65), allow_pickle=True)
+        np.save('mtand_idx_over_65.npy', np.array(idx_over_65), allow_pickle=True)
+        np.save('mtand_idx_male.npy', np.array(idx_male), allow_pickle=True)
+        np.save('mtand_idx_female.npy', np.array(idx_female), allow_pickle=True)
+        '''
+
+    elif dataset == 'P19':
+        PT_dict = np.load('../../../P19data/processed_data/PT_dict_list_6.npy', allow_pickle=True)
+        labels_ts = np.load('../../../P19data/processed_data/labels_ts.npy', allow_pickle=True)
+        labels_demogr = np.load('../../../P19data/processed_data/labels_demogr.npy', allow_pickle=True)
+        arr_outcomes = np.load('../../../P19data/processed_data/arr_outcomes_6.npy', allow_pickle=True)
+
+        total_dataset = preprocess_P19(PT_dict, arr_outcomes, labels_ts)
+
+    elif dataset == 'eICU':
+        PT_dict = np.load('../../../eICUdata/data/PTdict_list.npy', allow_pickle=True)
+        labels_ts = np.load('../../../eICUdata/data/eICU_ts_vars.npy', allow_pickle=True)
+        labels_demogr = np.load('../../../eICUdata/data/eICU_static_vars.npy', allow_pickle=True)
+        arr_outcomes = np.load('../../../eICUdata/data/arr_outcomes.npy', allow_pickle=True)
+
+        total_dataset = preprocess_eICU(PT_dict, arr_outcomes, labels_ts)
+
+    # if not args.classif:
+    #     # Concatenate samples from original Train and Test sets
+    #     # Only 'training' physionet samples are have labels.
+    #     # Therefore, if we do classifiction task, we don't need physionet 'test' samples.
+    #     total_dataset = total_dataset + \
+    #         test_dataset_obj[:len(test_dataset_obj)]
+
+    print('len(total_dataset):', len(total_dataset))
 
     if split_type == 'random':
         # Shuffle and split
         train_data, test_data = model_selection.train_test_split(total_dataset, train_size=0.9,     # 80% train, 10% validation, 10% test
                                                                  shuffle=True)
     elif split_type == 'age' or split_type == 'gender':
+        if dataset == 'P12':
+            prefix = 'mtand'
+        elif dataset == 'P19':
+            prefix = 'P19'
+        elif dataset == 'eICU':   # possible only with split_type == 'gender'
+            prefix = 'eICU'
+
         if split_type == 'age':
-            if reverse== False:
-                idx_train = np.load('mtand_idx_under_65.npy', allow_pickle=True)
-                idx_vt = np.load('mtand_idx_over_65.npy', allow_pickle=True)
+            if dataset == 'eICU':
+                print('\nCombination of eICU dataset and age split is not possible.\n')
+            if reverse == False:
+                idx_train = np.load('%s_idx_under_65.npy' % prefix, allow_pickle=True)
+                idx_vt = np.load('%s_idx_over_65.npy' % prefix, allow_pickle=True)
             else:
-                idx_train = np.load('mtand_idx_over_65.npy', allow_pickle=True)
-                idx_vt =  np.load('mtand_idx_under_65.npy', allow_pickle=True)
+                idx_train = np.load('%s_idx_over_65.npy' % prefix, allow_pickle=True)
+                idx_vt = np.load('%s_idx_under_65.npy' % prefix, allow_pickle=True)
         elif split_type == 'gender':
-            if reverse== False:
-                idx_train = np.load('mtand_idx_male.npy', allow_pickle=True)
-                idx_vt = np.load('mtand_idx_female.npy', allow_pickle=True)
+            if reverse == False:
+                idx_train = np.load('%s_idx_male.npy' % prefix, allow_pickle=True)
+                idx_vt = np.load('%s_idx_female.npy' % prefix, allow_pickle=True)
             else:
-                idx_train = np.load('mtand_idx_female.npy', allow_pickle=True)
-                idx_vt = np.load('mtand_idx_male.npy', allow_pickle=True)
+                idx_train = np.load('%s_idx_female.npy' % prefix, allow_pickle=True)
+                idx_vt = np.load('%s_idx_male.npy' % prefix, allow_pickle=True)
 
         np.random.shuffle(idx_train)
         np.random.shuffle(idx_vt)
@@ -347,7 +464,8 @@ def get_physionet_data(args, device, q, upsampling_batch, split_type, feature_re
     # n_samples = len(total_dataset)
     input_dim = vals.size(-1)
     data_min, data_max = get_data_min_max(total_dataset, device)
-    batch_size = min(min(len(train_dataset_obj_1), args.batch_size), args.n)
+    # batch_size = min(min(len(train_dataset_obj_1), args.batch_size), args.n)
+    batch_size = 128
     if flag:
         if args.classif:
             if split_type == 'random':
@@ -355,9 +473,15 @@ def get_physionet_data(args, device, q, upsampling_batch, split_type, feature_re
             elif split_type == 'age' or split_type == 'gender':
                 val_data, test_data = model_selection.train_test_split(test_data, train_size=0.5, shuffle=False)
 
-            if feature_removal_level == 'sample':
+            if dataset == 'P12':
                 num_all_features = 36
-                num_missing_features = round(missing_ratio * num_all_features)
+            elif dataset == 'P19':
+                num_all_features = 34
+            elif dataset == 'eICU':
+                num_all_features = 14
+
+            num_missing_features = round(missing_ratio * num_all_features)
+            if feature_removal_level == 'sample':
                 for i, tpl in enumerate(val_data):
                     idx = np.random.choice(num_all_features, num_missing_features, replace=False)
                     _, _, values, _, _ = tpl
@@ -373,10 +497,18 @@ def get_physionet_data(args, device, q, upsampling_batch, split_type, feature_re
                     tpl[2] = values
                     test_data[i] = tuple(tpl)
             elif feature_removal_level == 'set':
-                num_all_features = 36
-                num_missing_features = round(missing_ratio * num_all_features)
-                dict_params = train_dataset_obj_1.params_dict
-                density_scores_names = np.load('density_scores.npy', allow_pickle=True)[:, 2]
+                if dataset == 'P12':
+                    dict_params = train_dataset_obj_1.params_dict
+                    density_scores_names = np.load('density_scores.npy', allow_pickle=True)[:, 2]
+                elif dataset == 'P19':
+                    labels_ts = np.load('../../../P19data/processed_data/labels_ts.npy', allow_pickle=True)
+                    dict_params = {label: i for i, label in enumerate(labels_ts[:-1])}
+                    density_scores_names = np.load('P19_density_scores.npy', allow_pickle=True)[:, 2]
+                elif dataset == 'eICU':
+                    labels_ts = np.load('../../../eICUdata/data/eICU_ts_vars.npy', allow_pickle=True)
+                    dict_params = {label: i for i, label in enumerate(labels_ts)}
+                    density_scores_names = np.load('eICU_density_scores.npy', allow_pickle=True)[:, 2]
+
                 idx = [dict_params[name] for name in density_scores_names[:num_missing_features]]
                 for i, tpl in enumerate(val_data):
                     _, _, values, _, _ = tpl
@@ -436,14 +568,14 @@ def get_physionet_data(args, device, q, upsampling_batch, split_type, feature_re
                                      collate_fn=lambda batch: variable_time_collate_fn2(batch, args, device, data_type="test",
                                                                                         data_min=data_min, data_max=data_max))
 
-    attr_names = train_dataset_obj_1.params
-    data_objects = {"dataset_obj": train_dataset_obj_1,
+    # attr_names = train_dataset_obj_1.params
+    data_objects = {"dataset_obj": {},  # train_dataset_obj_1
                     "train_dataloader": train_dataloader,
                     "test_dataloader": test_dataloader,
                     "input_dim": input_dim,
                     "n_train_batches": len(train_dataloader),
                     "n_test_batches": len(test_dataloader),
-                    "attr": attr_names,  # optional
+                    "attr": {},   # attr_names,  # optional
                     "classif_per_tp": False,  # optional
                     "n_labels": 1}  # optional
     if args.classif:

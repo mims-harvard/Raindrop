@@ -40,16 +40,16 @@ args = parser.parse_args(args=[])
 if __name__ == '__main__':
     """"0 means no missing (full observations); 1.0 means no observation, all missed"""
     #     missing_ratios = [0.0, 0.1, 0.2, 0.3, 0.4, 0.5]
-    missing_ratios = [0.0]  # no missing
+    missing_ratios = [0.2]
     for missing_ratio in missing_ratios:
         acc_all = []
         auc_all = []
         aupr_all = []
         upsampling_batch = True
 
-        split_type = 'random'  # possible values: 'random', 'age', 'gender'
+        split_type = 'gender'  # possible values: 'random', 'age', 'gender' ('age' not possible for dataset 'eICU')
         reverse_ = False  # False, True
-        feature_removal_level = 'sample'  # possible values: 'sample', 'set'
+        feature_removal_level = 'set'  # possible values: 'sample', 'set'
         num_runs = 5
         for r in range(num_runs):
             experiment_id = int(SystemRandom().random() * 100000)
@@ -66,10 +66,10 @@ if __name__ == '__main__':
             # device = 'cpu'  # todo
             args.classif = True
             args.niters = 20  # number of epochs
+            dataset = 'eICU'     # possible values: 'P12', 'P19', 'eICU'
 
-            if args.dataset == 'physionet':
-                data_obj = utils.get_physionet_data(args, device, args.quantization, upsampling_batch, split_type,
-                                                    feature_removal_level, missing_ratio, reverse=reverse_)
+            data_obj = utils.get_data(args, dataset, device, args.quantization, upsampling_batch, split_type,
+                                      feature_removal_level, missing_ratio, reverse=reverse_)
             # elif args.dataset == 'mimiciii':
             #     data_obj = utils.get_mimiciii_data(args)
             # elif args.dataset == 'activity':
