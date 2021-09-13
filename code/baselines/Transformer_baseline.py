@@ -75,7 +75,12 @@ for missing_ratio in missing_ratios:
     num_epochs = 20
     learning_rate = 0.001
 
-    d_static = 9
+    if dataset == 'P12':
+        d_static = 9
+    elif dataset == 'P19':
+        d_static = 6
+    elif dataset == 'eICU':
+        d_static = 399
     # emb_len     = 10
 
     # d_inp = 36 * 2 # concat mask in mask_normalize function
