@@ -37,10 +37,64 @@ warnings.filterwarnings("ignore")
 from scipy.special import softmax
 
 
+def generate_global_structure(data, K=10):
+    observations = data[:, :, :36]
+    cos_sim = torch.zeros([observations.shape[0], 36, 36])
+
+    # overlap = torch.zeros([observations.shape[0], 36,36])
+    for row in tqdm(range(observations.shape[0])):
+        unit = observations[row].T
+        cos_sim_unit = cosine_similarity(unit)  # shape: (9590, 9590)
+        cos_sim[row] = torch.from_numpy(cos_sim_unit)
+
+    ave_sim = torch.mean(cos_sim, dim=0)
+    # Find the top K neighbors and softmax
+    index = torch.argsort(ave_sim, dim=0)
+    index_K = index < K  # K=10
+    global_structure = index_K * ave_sim  #
+    global_structure = masked_softmax(global_structure)  # softmax while mask out zero values
+    return global_structure
+
+def diffuse(unit, N=10):
+    n_time = unit.shape[-1]
+    keep = n_time//N  -1
+    unit = unit[:, :keep*N].reshape([-1, keep, N])
+    # return torch.mean(unit, dim=-1)
+    return torch.max(unit, dim=-1).values
+
+
+def generate_global_structure_diffuse(data, K=10, dataset ='P12'):
+    if dataset == 'P12':
+        n_features = 36
+    elif dataset == 'P19':
+        n_features = 34
+    elif dataset == 'eICU':
+        n_features = 14
+
+    observations = Ptrain_tensor[:, :, :n_features]
+    cos_sim = torch.zeros([observations.shape[0], n_features, n_features])
+
+    # overlap = torch.zeros([observations.shape[0], n_features, n_features])
+    for row in tqdm(range(observations.shape[0])):
+        unit = observations[row].T  # unit.shape [36, 215]
+        unit = diffuse(unit, N=10)  # diffuse the values into N-near following steps
+
+        cos_sim_unit = cosine_similarity(unit)  # shape: (9590, 9590)
+        cos_sim[row] = torch.from_numpy(cos_sim_unit)
+
+    ave_sim = torch.mean(cos_sim, dim=0)
+    # Find the top K neighbors and softmax
+    index = torch.argsort(ave_sim, dim=0)
+    index_K = index < K  # K=10
+    global_structure = index_K * ave_sim  #
+    global_structure = masked_softmax(global_structure)  # softmax while mask out zero values
+    return global_structure
+
 torch.manual_seed(1)
 
 # training modes
 arch = 'standard'
+
 
 model_path = '../models/'
 
@@ -70,26 +124,37 @@ extended_static_params=['Age', 'Gender=0', 'Gender=1', 'Height', 'ICUType=1', 'I
  'ICUType=4', 'Weight']
 """setting split based on gender and age"""
 
-feature_removal_level = 'set'   # possible values: 'sample', 'set'
-missing_ratios = [0.0, 0.1, 0.2, 0.3, 0.4, 0.5]
+
+"""split = 'random', 'age', 'gender"""
+"""reverse= True: male, age<65 for training. 
+ reverse=False: female, age>65 for training"""
+"""baseline=True: run baselines. False: run our model (Raindrop)"""
+split = 'random'
+reverse = False
+baseline = False  # Always False for Raindrop
+
+feature_removal_level = 'sample'   # possible values: 'sample', 'set'
+
+"""While missing_ratio >0, feature_removal_level is automatically used"""
+# missing_ratios = [0.1, 0.2, 0.3, 0.4, 0.5]
+missing_ratios = [0.8]
 for missing_ratio in missing_ratios:
     # training/model params
-    num_epochs = 20  # 20  # 30
+    num_epochs = 10 #  20  # 20  # 30
     learning_rate = 0.0001
 
+    d_static = 9
     if dataset == 'P12':
         d_static = 9
     elif dataset == 'P19':
         d_static = 6
     elif dataset == 'eICU':
         d_static = 399
-    # emb_len     = 10
 
-    # d_inp = 36 * 2 # concat mask in mask_normalize function
     d_inp = 36*1  # doesn't has concat mask
 
-    dim = 1  # the dim of each node features
-    d_model = 36 *dim  #  64  # 256
+    d_ob= 4 # the dim of each node features
+    d_model = 36 *d_ob #  64  # 256
     nhid = 2 * d_model
 
     # nhid = 256
@@ -118,17 +183,9 @@ for missing_ratio in missing_ratios:
     # MAX = d_model
     MAX = 100
 
-    n_runs = 1  # change this from 1 to 1, in order to save debugging time.
-    n_splits = 5  # change this from 5 to 1, in order to save debugging time.
+    n_runs = 1 # change this from 1 to 1, in order to save debugging time.
+    n_splits = 5 # change this from 5 to 1, in order to save debugging time.
     subset = False  # use subset for better debugging in local PC, which only contains 1200 patients
-
-    """split = 'random', 'age', 'gender"""
-    """reverse= True: male, age<65 for training. 
-     reverse=False: female, age>65 for training"""
-    """baseline=True: run baselines. False: run our model (Raindrop)"""
-    split = 'random'
-    reverse = False
-    baseline = False
 
     acc_arr = np.zeros((n_splits, n_runs))
     auprc_arr = np.zeros((n_splits, n_runs))
@@ -137,7 +194,6 @@ for missing_ratio in missing_ratios:
         # k = 1
         split_idx = k+1
         print('Split id: %d' % split_idx)
-
         if dataset == 'P12':
             if subset == True:
                 split_path = '/splits/phy12_split_subset' + str(split_idx) + '.npy'
@@ -190,37 +246,7 @@ for missing_ratio in missing_ratios:
         #     print('load global structure')
         # except:
 
-        if dataset == 'P12':
-            n_features = 36
-        elif dataset == 'P19':
-            n_features = 34
-        elif dataset == 'eICU':
-            n_features = 14
-
-        observations = Ptrain_tensor[:, :, :n_features]
-        cos_sim = torch.zeros([observations.shape[0], n_features, n_features])
-
-        overlap = torch.zeros([observations.shape[0], n_features, n_features])
-        for row in tqdm(range(observations.shape[0])):
-            unit = observations[row].T
-            cos_sim_unit = cosine_similarity(unit) # shape: (9590, 9590)
-            cos_sim[row] = torch.from_numpy(cos_sim_unit)
-
-        #     # get the number of overlapped numbers; this makes more sense
-        #     for i in range(36):
-        #         for j in range(36):
-        #             overlap[row, i, j] = (unit[i]*unit[j]).nonzero().size(0)# len((unit[i]*unit[j]).nonzero()[0])
-        #
-        # cos_sim_normalized = torch.div(cos_sim, overlap)
-        # cos_sim_normalized[cos_sim_normalized != cos_sim_normalized] = 0 # set nan to 0
-        # ave_sim = torch.mean(cos_sim_normalized, dim=0)
-
-        ave_sim = torch.mean(cos_sim, dim=0)
-        # Find the top K neighbors and softmax
-        index = torch.argsort(ave_sim, dim=0)
-        index_K = index < 10  # K=10
-        global_structure = index_K*ave_sim #
-        global_structure = masked_softmax(global_structure)  # softmax while mask out zero values
+        global_structure = generate_global_structure_diffuse(Ptrain_tensor, K=10) #generate_global_structure
             #  # softmax
             # # global_structure = torch.nn.functional.softmax(global_structure, dim=0)
             # np.save(base_path + '/splits/global_strucutre' + str(split_idx) +'_normalize.npy', global_structure)
@@ -228,18 +254,19 @@ for missing_ratio in missing_ratios:
 
         # remove part of variables in validation and test set
         if missing_ratio > 0:
-            num_all_features = int(Pval_tensor.shape[2] / 2)  # divided by 2, because of mask
+            num_all_features = Pval_tensor.shape[
+                2]  # int(Pval_tensor.shape[2] / 2)#  Pval_tensor.shape[2] #   # divided by 2, because of mask
             num_missing_features = round(missing_ratio * num_all_features)
             if feature_removal_level == 'sample':
                 for i, patient in enumerate(Pval_tensor):
                     idx = np.random.choice(num_all_features, num_missing_features, replace=False)
                     patient[:, idx] = torch.zeros(Pval_tensor.shape[1], num_missing_features)  # values
-                    patient[:, idx + num_all_features] = torch.zeros(Pval_tensor.shape[1], num_missing_features)  # masks
+                    # patient[:, idx + num_all_features] = torch.zeros(Pval_tensor.shape[1], num_missing_features)  # masks
                     Pval_tensor[i] = patient
                 for i, patient in enumerate(Ptest_tensor):
                     idx = np.random.choice(num_all_features, num_missing_features, replace=False)
                     patient[:, idx] = torch.zeros(Ptest_tensor.shape[1], num_missing_features)  # values
-                    patient[:, idx + num_all_features] = torch.zeros(Ptest_tensor.shape[1], num_missing_features)  # masks
+                    # patient[:, idx + num_all_features] = torch.zeros(Ptest_tensor.shape[1], num_missing_features)  # masks
                     Ptest_tensor[i] = patient
             elif feature_removal_level == 'set':
                 if dataset == 'P12':
@@ -248,13 +275,16 @@ for missing_ratio in missing_ratios:
                     dataset_prefix = 'P19_'
                 elif dataset == 'eICU':
                     dataset_prefix = 'eICU_'
-                density_score_indices = np.load('baselines/saved/' + dataset_prefix + 'density_scores.npy', allow_pickle=True)[:, 0]
+                density_score_indices = np.load('baselines/saved/' + dataset_prefix + 'density_scores.npy',
+                                                allow_pickle=True)[:, 0]
+                # num_missing_features = num_missing_features * 2
                 idx = density_score_indices[:num_missing_features].astype(int)
-                Pval_tensor[:, :, idx] = torch.zeros(Pval_tensor.shape[0], Pval_tensor.shape[1], num_missing_features)  # values
-                Pval_tensor[:, :, idx + num_all_features] = torch.zeros(Pval_tensor.shape[0], Pval_tensor.shape[1], num_missing_features)  # masks
-                Ptest_tensor[:, :, idx] = torch.zeros(Ptest_tensor.shape[0], Ptest_tensor.shape[1], num_missing_features)  # values
-                Ptest_tensor[:, :, idx + num_all_features] = torch.zeros(Ptest_tensor.shape[0], Ptest_tensor.shape[1], num_missing_features)  # masks
-
+                Pval_tensor[:, :, idx] = torch.zeros(Pval_tensor.shape[0], Pval_tensor.shape[1],
+                                                     num_missing_features)  # values
+                # Pval_tensor[:, :, idx + num_all_features] = torch.zeros(Pval_tensor.shape[0], Pval_tensor.shape[1], num_missing_features)  # masks
+                Ptest_tensor[:, :, idx] = torch.zeros(Ptest_tensor.shape[0], Ptest_tensor.shape[1],
+                                                      num_missing_features)  # values
+                # Ptest_tensor[:, :, idx + num_all_features] = torch.zeros(Ptest_tensor.shape[0], Ptest_tensor.shape[1], num_missing_features)  # masks
         # convert to (seq_len, batch, feats)
         Ptrain_tensor = Ptrain_tensor.permute(1, 0, 2)  # shape: [215, 960, 72]
         Pval_tensor = Pval_tensor.permute(1, 0, 2)
@@ -281,6 +311,7 @@ for missing_ratio in missing_ratios:
         Pval_time_tensor = Pval_time_tensor.squeeze(2).permute(1, 0)
         Ptest_time_tensor = Ptest_time_tensor.squeeze(2).permute(1, 0)
 
+
         for m in range(n_runs):
             print('- - Run %d - -' % (m + 1))
             """"Xiang: until here, all the above processing are the same as TX_irregular_splits_subset.py"""""
@@ -290,7 +321,7 @@ for missing_ratio in missing_ratios:
             #                           d_static, MAX, 0.5, aggreg, n_classes)
             # HGT_latconcat, Raindrop,
             """d_inp = 36 * 1 ;        d_model = 36 * 2;        nhid = 2 * d_model"""
-            model = Raindrop(d_inp, d_model, nhead, nhid, nlayers, dropout, max_len,
+            model = Raindrop_v2(d_inp, d_model, nhead, nhid, nlayers, dropout, max_len,
                                       d_static, MAX, 0.5, aggreg, n_classes, global_structure)
 
             # model = Simple_classifier(d_inp, d_model, nhead, nhid, nlayers, dropout, max_len,
@@ -446,9 +477,6 @@ for missing_ratio in missing_ratios:
                         #     best_aupr_val = aupr_val
                         if auc_val > best_auc_val:
                             best_auc_val = auc_val
-                        # if acc_val > best_acc_val:
-                        #     best_acc_val = acc_val
-
                             print(
                                 "**[S] Epoch %d, aupr_val: %.4f, auc_val: %.4f **" % (epoch, aupr_val * 100, auc_val * 100))
                             torch.save(model.state_dict(), model_path + arch + '_' + str(split_idx) + '.pt')
@@ -493,7 +521,8 @@ for missing_ratio in missing_ratios:
     auprc_vec = [auprc_arr[k, idx_max[k]] for k in range(n_splits)]
     auroc_vec = [auroc_arr[k, idx_max[k]] for k in range(n_splits)]
 
-    print("split type:{}, reverse:{}, using baseline:{}".format(split, reverse, baseline))
+    print("missing ratio:{}, split type:{}, reverse:{}, using baseline:{}".format(missing_ratio, split, reverse, baseline))
+
 
     # display mean and standard deviation
     mean_acc, std_acc = np.mean(acc_vec), np.std(acc_vec)
