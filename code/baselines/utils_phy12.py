@@ -48,10 +48,21 @@ class NoamOpt:
         self.optimizer.zero_grad()
 
 
-def get_data_split(base_path, split_path, split_type='random', reverse=False, baseline=True):
+def get_data_split(base_path, split_path, split_type='random', reverse=False, baseline=True, dataset='P12'):
     # load data
-    Pdict_list = np.load(base_path + '/processed_data/PTdict_list.npy', allow_pickle=True)
-    arr_outcomes = np.load(base_path + '/processed_data/arr_outcomes.npy', allow_pickle=True)
+    if dataset == 'P12':
+        Pdict_list = np.load(base_path + '/processed_data/PTdict_list.npy', allow_pickle=True)
+        arr_outcomes = np.load(base_path + '/processed_data/arr_outcomes.npy', allow_pickle=True)
+        dataset_prefix = ''
+    elif dataset == 'P19':
+        Pdict_list = np.load(base_path + '/processed_data/PT_dict_list_6.npy', allow_pickle=True)
+        arr_outcomes = np.load(base_path + '/processed_data/arr_outcomes_6.npy', allow_pickle=True)
+        dataset_prefix = 'P19_'
+    elif dataset == 'eICU':
+        Pdict_list = np.load(base_path + '/data/PTdict_list.npy', allow_pickle=True)
+        arr_outcomes = np.load(base_path + '/data/arr_outcomes.npy', allow_pickle=True)
+        dataset_prefix = 'eICU_'
+
     #     print(len(Pdict_list), arr_outcomes.shape)
 
     # Pdict_list = np.load(base_path + '/PTdict_list.npy', allow_pickle=True)
@@ -113,7 +124,7 @@ def get_data_split(base_path, split_path, split_type='random', reverse=False, ba
     # np.save('saved/idx_male.npy', np.array(idx_male), allow_pickle=True)
     # np.save('saved/idx_female.npy', np.array(idx_female), allow_pickle=True)
 
-    transformer_path = True
+    # transformer_path = True
     if baseline==True:
         BL_path = ''
     else:
@@ -124,12 +135,12 @@ def get_data_split(base_path, split_path, split_type='random', reverse=False, ba
         idx_train, idx_val, idx_test = np.load(base_path + split_path, allow_pickle=True)
         #     print(len(idx_train), len(idx_val), len(idx_test))
     elif split_type == 'age':
-        if reverse==False:
-            idx_train = np.load(BL_path+'saved/idx_under_65.npy', allow_pickle=True)
-            idx_vt = np.load(BL_path+'saved/idx_over_65.npy', allow_pickle=True)
-        elif reverse ==True:
-            idx_train =  np.load(BL_path+'saved/idx_over_65.npy', allow_pickle=True)
-            idx_vt = np.load(BL_path+'saved/idx_under_65.npy', allow_pickle=True)
+        if reverse == False:
+            idx_train = np.load(BL_path+'saved/' + dataset_prefix + 'idx_under_65.npy', allow_pickle=True)
+            idx_vt = np.load(BL_path+'saved/' + dataset_prefix + 'idx_over_65.npy', allow_pickle=True)
+        elif reverse == True:
+            idx_train = np.load(BL_path+'saved/' + dataset_prefix + 'idx_over_65.npy', allow_pickle=True)
+            idx_vt = np.load(BL_path+'saved/' + dataset_prefix + 'idx_under_65.npy', allow_pickle=True)
 
         # if transformer_path:    # relative path for for Transformer_baseline.py
         #     idx_train = np.load('saved/idx_under_65.npy', allow_pickle=True)
@@ -143,11 +154,11 @@ def get_data_split(base_path, split_path, split_type='random', reverse=False, ba
         idx_test = idx_vt[round(len(idx_vt) / 2):]
     elif split_type == 'gender':
         if reverse == False:
-            idx_train = np.load(BL_path+'saved/idx_male.npy', allow_pickle=True)
-            idx_vt = np.load(BL_path+'saved/idx_female.npy', allow_pickle=True)
+            idx_train = np.load(BL_path+'saved/' + dataset_prefix + 'idx_male.npy', allow_pickle=True)
+            idx_vt = np.load(BL_path+'saved/' + dataset_prefix + 'idx_female.npy', allow_pickle=True)
         elif reverse == True:
-            idx_train = np.load(BL_path+'saved/idx_female.npy', allow_pickle=True)
-            idx_vt = np.load(BL_path+'saved/idx_male.npy', allow_pickle=True)
+            idx_train = np.load(BL_path+'saved/' + dataset_prefix + 'idx_female.npy', allow_pickle=True)
+            idx_vt = np.load(BL_path+'saved/' + dataset_prefix + 'idx_male.npy', allow_pickle=True)
 
         # if transformer_path:    # relative path for for Transformer_baseline.py
         #     idx_train = np.load('saved/idx_male.npy', allow_pickle=True)
@@ -166,7 +177,10 @@ def get_data_split(base_path, split_path, split_type='random', reverse=False, ba
     Ptest = Pdict_list[idx_test]
 
     # extract mortality labels
-    y = arr_outcomes[:, -1].reshape((-1, 1))
+    if dataset == 'P12' or dataset == 'P19':
+        y = arr_outcomes[:, -1].reshape((-1, 1))
+    elif dataset == 'eICU':
+        y = arr_outcomes[..., np.newaxis]
     ytrain = y[idx_train]
     yval = y[idx_val]
     ytest = y[idx_test]
@@ -254,14 +268,27 @@ def mask_normalize(P_tensor, mf, stdf):
 
 
 # for static data
-def getStats_static(P_tensor):
+def getStats_static(P_tensor, dataset='P12'):
     N, S = P_tensor.shape
     Ps = P_tensor.transpose((1, 0))
     # find mean for each static
     ms = np.zeros((S, 1))
     ss = np.ones((S, 1))
-    # ['Age' 'Gender=0' 'Gender=1' 'Height' 'ICUType=1' 'ICUType=2' 'ICUType=3' 'ICUType=4' 'Weight']
-    bool_categorical = [0, 1, 1, 0, 1, 1, 1, 1, 0]
+
+    # p12_ = np.load('../../P12data/processed_data/extended_static_params.npy')
+    # p19_ = np.load('../../P19data/processed_data/labels_demogr.npy')
+    # eicu_ = np.load('../../eICUdata/data/eICU_static_vars.npy')
+
+    if dataset == 'P12':
+        # ['Age' 'Gender=0' 'Gender=1' 'Height' 'ICUType=1' 'ICUType=2' 'ICUType=3' 'ICUType=4' 'Weight']
+        bool_categorical = [0, 1, 1, 0, 1, 1, 1, 1, 0]
+    elif dataset == 'P19':
+        # ['Age' 'Gender' 'Unit1' 'Unit2' 'HospAdmTime' 'ICULOS']
+        bool_categorical = [0, 1, 0, 0, 0, 0]
+    elif dataset == 'eICU':
+        # ['apacheadmissiondx' 'ethnicity' 'gender' 'admissionheight' 'admissionweight'] -> 399 dimensions
+        bool_categorical = [1] * 397 + [0] * 2
+
     for s in range(S):
         if bool_categorical[s] == 0:  # if not categorical
             vals_s = Ps[s, :]

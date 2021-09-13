@@ -1579,7 +1579,7 @@ class Raindrop(nn.Module):
 
             """Step 2 (loop for units): graph message passing (ribble)"""
             # x: [215, 128, 36]
-            output = torch.zeros([215, src.shape[1] , 36*self.dim]).cuda() # shape[215, 128, 36]
+            output = torch.zeros([maxlen, src.shape[1] , 36*self.dim]).cuda() # shape[215, 128, 36]
             alpha_all = torch.zeros([edge_index.shape[1],  src.shape[1] ]).cuda()
             for unit in range(0, x.shape[1]):
                 """Using transformer conv"""
