@@ -27,18 +27,25 @@ import sys
 # sys.path.append(os.path.abspath('../'))
 from models import TransformerModel, TransformerModel2, SEFT
 from utils_baselines import *
-
-# from utils_phy12 import *
+from utils_phy12 import *
 
 torch.manual_seed(1)
 
 # training modes
 arch = 'standard'
 
-
 model_path = '../../models/'
 
-base_path = '../../P12data'
+dataset = 'P12'     # possible values: 'P12', 'P19', 'eICU'
+print('Dataset used: ', dataset)
+
+if dataset == 'P12':
+    base_path = '../../P12data'
+elif dataset == 'P19':
+    base_path = '../../P19data'
+elif dataset == 'eICU':
+    base_path = '../../eICUdata'
+
 # ### show the names of variables and statistic descriptors
 # ts_params = np.load(base_path + '/processed_data/ts_params.npy', allow_pickle=True)
 # extended_static_params = np.load(base_path + '/processed_data/extended_static_params.npy', allow_pickle=True)
@@ -56,14 +63,19 @@ extended_static_params=['Age', 'Gender=0', 'Gender=1', 'Height', 'ICUType=1', 'I
  'ICUType=4', 'Weight']
 
 
-feature_removal_level = 'sample'   # possible values: 'sample', 'set'
+feature_removal_level = 'set'   # possible values: 'sample', 'set'
 missing_ratios = [0.0, 0.1, 0.2, 0.3, 0.4, 0.5]
 for missing_ratio in missing_ratios:
     # training/model params
     num_epochs = 20
     learning_rate = 0.001
 
-    d_static = 9
+    if dataset == 'P12':
+        d_static = 9
+    elif dataset == 'P19':
+        d_static = 6
+    elif dataset == 'eICU':
+        d_static = 399
     # emb_len     = 10
 
     d_inp = 36 * 2 # concat mask in mask_normalize function
@@ -76,14 +88,19 @@ for missing_ratio in missing_ratios:
     # nhid = 512  # seems to work better than 2*d_model=256
     # nhid = 1024
 
-    nlayers = 2 #2  # the layer doesn't really matters
+    nlayers = 2  # 2  # the layer doesn't really matters
 
     # nhead = 16 # seems to work better
-    nhead = 4 # 8, 16, 32
+    nhead = 4  # 8, 16, 32
 
     dropout = 0.2
 
-    max_len = 215
+    if dataset == 'P12':
+        max_len = 215
+    elif dataset == 'P19':
+        max_len = 60
+    elif dataset == 'eICU':
+        max_len = 300
 
     aggreg = 'mean'
     # aggreg = 'max'
@@ -94,7 +111,7 @@ for missing_ratio in missing_ratios:
 
     n_runs = 1  # change this from 1 to 1, in order to save debugging time.
     n_splits = 1  # change this from 5 to 1, in order to save debugging time.
-    subset = False  # use subset for better debugging in local PC, which only contains 1200 patients
+    subset = True  # use subset for better debugging in local PC, which only contains 1200 patients
 
     """split = 'random', 'age', 'gender"""
     """reverse= True: male, age<65 for training. 
@@ -111,14 +128,20 @@ for missing_ratio in missing_ratios:
         split_idx = k + 1
         # split_idx =
         print('Split id: %d' % split_idx)
-        if subset==True:
-            split_path = '/splits/phy12_split_subset' + str(split_idx) + '.npy'
-        else:
-            split_path = '/splits/phy12_split' + str(split_idx) + '.npy'
+
+        if dataset == 'P12':
+            if subset == True:
+                split_path = '/splits/phy12_split_subset' + str(split_idx) + '.npy'
+            else:
+                split_path = '/splits/phy12_split' + str(split_idx) + '.npy'
+        elif dataset == 'P19':
+            split_path = '/splits/phy19_split' + str(split_idx) + '_new.npy'
+        elif dataset == 'eICU':
+            split_path = '/splits/eICU_split' + str(split_idx) + '.npy'
 
         # prepare the data:
-        Ptrain, Pval, Ptest, ytrain, yval, ytest = get_data_split(base_path, split_path, split_type=split, reverse=reverse,
-                                                                  baseline=baseline)
+        Ptrain, Pval, Ptest, ytrain, yval, ytest = get_data_split(base_path, split_path, split_type=split,
+                                                                  reverse=reverse, baseline=baseline, dataset=dataset)
         print(len(Ptrain), len(Pval), len(Ptest), len(ytrain), len(yval), len(ytest))
 
         # """New split"""
@@ -148,7 +171,7 @@ for missing_ratio in missing_ratios:
 
         """Z-score Normalization. Before this step, we can remove Direct current shift (minus the average) """
         mf, stdf = getStats(Ptrain_tensor)
-        ms, ss = getStats_static(Ptrain_static_tensor)
+        ms, ss = getStats_static(Ptrain_static_tensor, dataset=dataset)
 
         Ptrain_tensor, Ptrain_static_tensor, Ptrain_time_tensor, ytrain_tensor = tensorize_normalize(Ptrain, ytrain, mf,
                                                                                                      stdf, ms, ss)
@@ -177,7 +200,13 @@ for missing_ratio in missing_ratios:
                                                                      num_missing_features)  # masks
                     Ptest_tensor[i] = patient
             elif feature_removal_level == 'set':
-                density_score_indices = np.load('saved/density_scores.npy', allow_pickle=True)[:, 0]
+                if dataset == 'P12':
+                    dataset_prefix = ''
+                elif dataset == 'P19':
+                    dataset_prefix = 'P19_'
+                elif dataset == 'eICU':
+                    dataset_prefix = 'eICU_'
+                density_score_indices = np.load('saved/' + dataset_prefix + 'density_scores.npy', allow_pickle=True)[:, 0]
                 idx = density_score_indices[:num_missing_features].astype(int)
                 Pval_tensor[:, :, idx] = torch.zeros(Pval_tensor.shape[0], Pval_tensor.shape[1], num_missing_features)  # values
                 Pval_tensor[:, :, idx + num_all_features] = torch.zeros(Pval_tensor.shape[0], Pval_tensor.shape[1], num_missing_features)  # masks

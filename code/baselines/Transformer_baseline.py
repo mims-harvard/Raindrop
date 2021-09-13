@@ -36,10 +36,10 @@ torch.manual_seed(1)
 # training modes
 arch = 'standard'
 
-
 model_path = '../../models/'
 
-dataset = 'P12'     # possible values: 'P12', 'P19', 'eICU'
+dataset = 'P19'     # possible values: 'P12', 'P19', 'eICU'
+print('Dataset used: ', dataset)
 
 if dataset == 'P12':
     base_path = '../../P12data'
@@ -194,7 +194,7 @@ for missing_ratio in missing_ratios:
                     dataset_prefix = 'P19_'
                 elif dataset == 'eICU':
                     dataset_prefix = 'eICU_'
-                density_score_indices = np.load('saved/' + dataset_prefix + 'density_scores.npy', allow_pickle=True)[:, 0]    # todo: for all 3
+                density_score_indices = np.load('saved/' + dataset_prefix + 'density_scores.npy', allow_pickle=True)[:, 0]
                 # num_missing_features = num_missing_features * 2
                 idx = density_score_indices[:num_missing_features].astype(int)
                 Pval_tensor[:, :, idx] = torch.zeros(Pval_tensor.shape[0], Pval_tensor.shape[1], num_missing_features)   # values
