@@ -42,12 +42,17 @@ torch.manual_seed(1)
 # training modes
 arch = 'standard'
 
-
 model_path = '../models/'
 
-base_path = '../P12data'
+dataset = 'P12'     # possible values: 'P12', 'P19', 'eICU'
+print('Dataset used: ', dataset)
 
-# base_path = '../P19data'
+if dataset == 'P12':
+    base_path = '../P12data'
+elif dataset == 'P19':
+    base_path = '../P19data'
+elif dataset == 'eICU':
+    base_path = '../eICUdata'
 
 # ### show the names of variables and statistic descriptors
 # ts_params = np.load(base_path + '/processed_data/ts_params.npy', allow_pickle=True)
@@ -65,21 +70,26 @@ extended_static_params=['Age', 'Gender=0', 'Gender=1', 'Height', 'ICUType=1', 'I
  'ICUType=4', 'Weight']
 """setting split based on gender and age"""
 
-feature_removal_level = 'sample'   # possible values: 'sample', 'set'
+feature_removal_level = 'set'   # possible values: 'sample', 'set'
 missing_ratios = [0.0, 0.1, 0.2, 0.3, 0.4, 0.5]
 for missing_ratio in missing_ratios:
     # training/model params
     num_epochs = 20  # 20  # 30
     learning_rate = 0.0001
 
-    d_static = 9
+    if dataset == 'P12':
+        d_static = 9
+    elif dataset == 'P19':
+        d_static = 6
+    elif dataset == 'eICU':
+        d_static = 399
     # emb_len     = 10
 
     # d_inp = 36 * 2 # concat mask in mask_normalize function
     d_inp = 36*1  # doesn't has concat mask
 
-    dim= 1 # the dim of each node features
-    d_model = 36 *dim #  64  # 256
+    dim = 1  # the dim of each node features
+    d_model = 36 *dim  #  64  # 256
     nhid = 2 * d_model
 
     # nhid = 256
@@ -94,7 +104,12 @@ for missing_ratio in missing_ratios:
 
     dropout = 0.3 #0.5 (81.2) # 0.3 (81.5)
 
-    max_len = 215
+    if dataset == 'P12':
+        max_len = 215
+    elif dataset == 'P19':
+        max_len = 60
+    elif dataset == 'eICU':
+        max_len = 300
 
     aggreg = 'mean'
     # aggreg = 'max'
@@ -103,8 +118,8 @@ for missing_ratio in missing_ratios:
     # MAX = d_model
     MAX = 100
 
-    n_runs = 1 # change this from 1 to 1, in order to save debugging time.
-    n_splits = 5 # change this from 5 to 1, in order to save debugging time.
+    n_runs = 1  # change this from 1 to 1, in order to save debugging time.
+    n_splits = 5  # change this from 5 to 1, in order to save debugging time.
     subset = False  # use subset for better debugging in local PC, which only contains 1200 patients
 
     """split = 'random', 'age', 'gender"""
@@ -122,14 +137,20 @@ for missing_ratio in missing_ratios:
         # k = 1
         split_idx = k+1
         print('Split id: %d' % split_idx)
-        if subset==True:
-            split_path = '/splits/phy12_split_subset' + str(split_idx) + '.npy'
-        else:
-            split_path = '/splits/phy12_split' + str(split_idx) + '.npy'
+
+        if dataset == 'P12':
+            if subset == True:
+                split_path = '/splits/phy12_split_subset' + str(split_idx) + '.npy'
+            else:
+                split_path = '/splits/phy12_split' + str(split_idx) + '.npy'
+        elif dataset == 'P19':
+            split_path = '/splits/phy19_split' + str(split_idx) + '_new.npy'
+        elif dataset == 'eICU':
+            split_path = '/splits/eICU_split' + str(split_idx) + '.npy'
 
         # prepare the data:
         Ptrain, Pval, Ptest, ytrain, yval, ytest = get_data_split(base_path, split_path, split_type=split, reverse=reverse,
-                                                                  baseline=baseline)
+                                                                  baseline=baseline, dataset=dataset)
         # Ptrain, Pval, Ptest, ytrain, yval, ytest = get_data_split(base_path, split_path) # use fixed split
         # Ptrain, Pval, Ptest, ytrain, yval, ytest = get_data_split(base_path, split_path=None) # use random split
         print(len(Ptrain), len(Pval), len(Ptest), len(ytrain), len(yval), len(ytest))
@@ -150,7 +171,7 @@ for missing_ratio in missing_ratios:
 
         """Z-score Normalization. Before this step, we can remove Direct current shift (minus the average) """
         mf, stdf = getStats(Ptrain_tensor)
-        ms, ss = getStats_static(Ptrain_static_tensor)
+        ms, ss = getStats_static(Ptrain_static_tensor, dataset=dataset)
 
         Ptrain_tensor, Ptrain_static_tensor, Ptrain_time_tensor, ytrain_tensor = tensorize_normalize(Ptrain, ytrain, mf,
                                                                                                      stdf, ms, ss)
@@ -168,10 +189,18 @@ for missing_ratio in missing_ratios:
         #     global_structure = torch.from_numpy(global_structure)
         #     print('load global structure')
         # except:
-        observations = Ptrain_tensor[:, :, :36]
-        cos_sim = torch.zeros([observations.shape[0], 36, 36])
 
-        overlap = torch.zeros([observations.shape[0], 36,36])
+        if dataset == 'P12':
+            n_features = 36
+        elif dataset == 'P19':
+            n_features = 34
+        elif dataset == 'eICU':
+            n_features = 14
+
+        observations = Ptrain_tensor[:, :, :n_features]
+        cos_sim = torch.zeros([observations.shape[0], n_features, n_features])
+
+        overlap = torch.zeros([observations.shape[0], n_features, n_features])
         for row in tqdm(range(observations.shape[0])):
             unit = observations[row].T
             cos_sim_unit = cosine_similarity(unit) # shape: (9590, 9590)
@@ -213,7 +242,13 @@ for missing_ratio in missing_ratios:
                     patient[:, idx + num_all_features] = torch.zeros(Ptest_tensor.shape[1], num_missing_features)  # masks
                     Ptest_tensor[i] = patient
             elif feature_removal_level == 'set':
-                density_score_indices = np.load('baselines/saved/density_scores.npy', allow_pickle=True)[:, 0]
+                if dataset == 'P12':
+                    dataset_prefix = ''
+                elif dataset == 'P19':
+                    dataset_prefix = 'P19_'
+                elif dataset == 'eICU':
+                    dataset_prefix = 'eICU_'
+                density_score_indices = np.load('baselines/saved/' + dataset_prefix + 'density_scores.npy', allow_pickle=True)[:, 0]
                 idx = density_score_indices[:num_missing_features].astype(int)
                 Pval_tensor[:, :, idx] = torch.zeros(Pval_tensor.shape[0], Pval_tensor.shape[1], num_missing_features)  # values
                 Pval_tensor[:, :, idx + num_all_features] = torch.zeros(Pval_tensor.shape[0], Pval_tensor.shape[1], num_missing_features)  # masks
@@ -245,7 +280,6 @@ for missing_ratio in missing_ratios:
         Ptrain_time_tensor = Ptrain_time_tensor.squeeze(2).permute(1, 0)  # shape: [215, 9590]
         Pval_time_tensor = Pval_time_tensor.squeeze(2).permute(1, 0)
         Ptest_time_tensor = Ptest_time_tensor.squeeze(2).permute(1, 0)
-
 
         for m in range(n_runs):
             print('- - Run %d - -' % (m + 1))
