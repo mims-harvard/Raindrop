@@ -179,6 +179,8 @@ class TransformerModel2(nn.Module):
     def forward(self, src, static, times, lengths):
         maxlen, batch_size = src.shape[0], src.shape[1]  # src.shape = [215, 128, 72]
 
+        src = src[:, :, :int(src.shape[2] / 2)]  # remove the mask info
+
         """Question: why 72 features (36 feature + 36 mask)?"""
         src = self.encoder(src) #* math.sqrt(self.d_model)  # linear layer: 72 --> 32
 
