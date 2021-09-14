@@ -92,13 +92,22 @@ def generate_global_structure_diffuse(data, K=10, dataset ='P12'):
 
 torch.manual_seed(1)
 
+import argparse
+parser = argparse.ArgumentParser()
+parser.add_argument('--dataset', type=str, default='P12', choices=['P12', 'P19', 'eICU', 'PAMAP2']) #
+parser.add_argument('--withmissingratio', default=False, help='if True, missing ratio ranges from 0 to 0.5; if False, missing ratio =0') #
+parser.add_argument('--splittype', type=str, default='random', choices=['random', 'age', 'gender'], help='only use for P12 and P19')
+parser.add_argument('--reverse', default=False, help='if True,use female, older for tarining; if False, use female or younger for training') #
+parser.add_argument('--feature_removal_level', type=str, default='no_removal', choices=['no_removal', 'set', 'sample'],
+                    help='use this only when splittype==random; otherwise, set as no_removal') #
+args = parser.parse_args(args=[])
+
+
 # training modes
 arch = 'standard'
-
-
 model_path = '../models/'
 
-dataset = 'P12'     # possible values: 'P12', 'P19', 'eICU'
+dataset = args.dataset     # possible values: 'P12', 'P19', 'eICU'
 print('Dataset used: ', dataset)
 
 if dataset == 'P12':
@@ -129,29 +138,33 @@ extended_static_params=['Age', 'Gender=0', 'Gender=1', 'Height', 'ICUType=1', 'I
 """reverse= True: male, age<65 for training. 
  reverse=False: female, age>65 for training"""
 """baseline=True: run baselines. False: run our model (Raindrop)"""
-split = 'random'
-reverse = False
+# split = 'random'
+# reverse = False
 baseline = False  # Always False for Raindrop
-
-feature_removal_level = 'sample'   # possible values: 'sample', 'set'
+split = args.splittype  # 'gender'  # possible values: 'random', 'age', 'gender' ('age' not possible for dataset 'eICU')
+reverse = args.reverse  # False  True
+feature_removal_level = args.feature_removal_level  # 'set'
 
 """While missing_ratio >0, feature_removal_level is automatically used"""
-# missing_ratios = [0.1, 0.2, 0.3, 0.4, 0.5]
-missing_ratios = [0.8]
+if args.withmissingratio:
+    missing_ratios = [0.0, 0.1, 0.2, 0.3, 0.4, 0.5]  # if True, with missing ratio
+else:
+    missing_ratios = [0]
 for missing_ratio in missing_ratios:
     # training/model params
     num_epochs = 10 #  20  # 20  # 30
     learning_rate = 0.0001
 
-    d_static = 9
+    # d_static = 9
     if dataset == 'P12':
         d_static = 9
+        d_inp = 36
     elif dataset == 'P19':
         d_static = 6
+        d_inp = 34#*2
     elif dataset == 'eICU':
         d_static = 399
-
-    d_inp = 36*1  # doesn't has concat mask
+        d_inp = 14
 
     d_ob= 4 # the dim of each node features
     d_model = 36 *d_ob #  64  # 256
@@ -185,7 +198,7 @@ for missing_ratio in missing_ratios:
 
     n_runs = 1 # change this from 1 to 1, in order to save debugging time.
     n_splits = 5 # change this from 5 to 1, in order to save debugging time.
-    subset = False  # use subset for better debugging in local PC, which only contains 1200 patients
+    subset = True  # use subset for better debugging in local PC, which only contains 1200 patients
 
     acc_arr = np.zeros((n_splits, n_runs))
     auprc_arr = np.zeros((n_splits, n_runs))
@@ -275,9 +288,11 @@ for missing_ratio in missing_ratios:
                     dataset_prefix = 'P19_'
                 elif dataset == 'eICU':
                     dataset_prefix = 'eICU_'
-                density_score_indices = np.load('baselines/saved/' + dataset_prefix + 'density_scores.npy',
-                                                allow_pickle=True)[:, 0]
-                # num_missing_features = num_missing_features * 2
+                # density_score_indices = np.load('baselines/saved/' + dataset_prefix + 'density_scores.npy',
+                #                                 allow_pickle=True)[:, 0]
+                density_score_indices =  np.array([16, 35,0,10,3,5,23,24,34,11,29,1,14,7,30,12,4,13,28,19,9,17,22,
+                                          32,2,18,15,31,20,33,21,25,27,8,26,6])
+
                 idx = density_score_indices[:num_missing_features].astype(int)
                 Pval_tensor[:, :, idx] = torch.zeros(Pval_tensor.shape[0], Pval_tensor.shape[1],
                                                      num_missing_features)  # values
@@ -290,21 +305,7 @@ for missing_ratio in missing_ratios:
         Pval_tensor = Pval_tensor.permute(1, 0, 2)
         Ptest_tensor = Ptest_tensor.permute(1, 0, 2)
 
-        """Mask out some variables: [ 8, 14, 17, 20, 21, 22, 29, 30, 33] (sparse ratio>0.1)
-        1. We train on all sensors, but testing with partial sensors
-        2. Train and test on partial sensors. """
-        # variable = [ 8, 14, 17, 20, 21, 22, 29, 30, 33]  # AUROC =76.5 if only keep these variables; AUROC = 83.4 if remove these variables
-        # variable = [ 8,  9, 10, 13, 14, 17, 18, 20, 21, 22, 24, 25, 27, 29, 30, 33, 35] #AUROC =83.9 if only keep these variables; AUROC =75.1 if remove these variables
-        # variable = [9, 10, 13, 18, 24, 25, 27, 35] # AUROC =79.7 if only keep these variables;AUROC = 78.3 if remove these variables
 
-
-        # variable = [ 8, 10, 14, 17, 20, 21, 22, 27, 29, 30, 33] # ratio>0.047 (appearted 10 observations)
-        # for i in range(36):
-        #     # if i not in variable:
-        #     if i in variable:
-        #     #     #Ptrain_tensor[:, :, i]=0
-        #         Pval_tensor[:, :, i] = 0
-        #         Ptest_tensor[:, :, i] = 0
 
         # convert to (seq_len, batch)
         Ptrain_time_tensor = Ptrain_time_tensor.squeeze(2).permute(1, 0)  # shape: [215, 9590]
@@ -398,9 +399,7 @@ for missing_ratio in missing_ratios:
 
                     """Shape [128]. Length means the number of timepoints in each sample, for all samples in this batch"""
                     lengths = torch.sum(Ptime > 0, dim=0)
-
                     """Use two different ways to check the results' consistency"""
-
 
                     outputs, local_structure_regularization, _ = model.forward(P, Pstatic, Ptime, lengths)
                     # outputs = evaluate_standard(model, P, Ptime, Pstatic)
