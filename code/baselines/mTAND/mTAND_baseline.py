@@ -26,30 +26,38 @@ parser.add_argument('--quantization', type=float, default=0.016,
                     help="Quantization on the physionet dataset.")
 parser.add_argument('--classif', default=True, action='store_true',
                     help="Include binary classification loss")
-
-parser.add_argument('--learn-emb', action='store_true')
-parser.add_argument('--num-heads', type=int, default=1)
-parser.add_argument('--freq', type=float, default=10.)
-parser.add_argument('--dataset', type=str, default='physionet')
 parser.add_argument('--old-split', type=int, default=1)
 parser.add_argument('--nonormalize', action='store_true')
 parser.add_argument('--classify-pertp', action='store_true')
-# args = parser.parse_args()
+parser.add_argument('--learn-emb', action='store_true')
+parser.add_argument('--num-heads', type=int, default=1)
+parser.add_argument('--freq', type=float, default=10.)
+
+
+parser.add_argument('--dataset', type=str, default='P12', choices=['P12', 'P19', 'eICU', 'PAMAP2']) #
+parser.add_argument('--withmissingratio', default=False, help='if True, missing ratio ranges from 0 to 0.5; if False, missing ratio =0') #
+parser.add_argument('--splittype', type=str, default='random', choices=['random', 'age', 'gender'], help='only use for P12 and P19') #
+parser.add_argument('--reverse', default=False, help='if True,use female, older for tarining; if False, use female or younger for training') #
+parser.add_argument('--feature_removal_level', type=str, default='no_removal', choices=['no_removal', 'set', 'sample'],
+                    help='use this only when splittype==random; otherwise, set as no_removal') #
+
 args = parser.parse_args(args=[])
 
 if __name__ == '__main__':
     """"0 means no missing (full observations); 1.0 means no observation, all missed"""
-    #     missing_ratios = [0.0, 0.1, 0.2, 0.3, 0.4, 0.5]
-    missing_ratios = [0.2]
+    if args.withmissingratio:
+       missing_ratios = [0.0, 0.1, 0.2, 0.3, 0.4, 0.5] # if True, with missing ratio
+    else:
+        missing_ratios = [0]
     for missing_ratio in missing_ratios:
         acc_all = []
         auc_all = []
         aupr_all = []
         upsampling_batch = True
 
-        split_type = 'gender'  # possible values: 'random', 'age', 'gender' ('age' not possible for dataset 'eICU')
-        reverse_ = False  # False, True
-        feature_removal_level = 'set'  # possible values: 'sample', 'set'
+        split_type = args.splittype #  'gender'  # possible values: 'random', 'age', 'gender' ('age' not possible for dataset 'eICU')
+        reverse_ = args.reverse # False  True
+        feature_removal_level =  args.feature_removal_level #'set'
         num_runs = 5
         for r in range(num_runs):
             experiment_id = int(SystemRandom().random() * 100000)
@@ -66,7 +74,7 @@ if __name__ == '__main__':
             # device = 'cpu'  # todo
             args.classif = True
             args.niters = 20  # number of epochs
-            dataset = 'eICU'     # possible values: 'P12', 'P19', 'eICU'
+            dataset = args.dataset #  'eICU'     # possible values: 'P12', 'P19', 'eICU'
 
             data_obj = utils.get_data(args, dataset, device, args.quantization, upsampling_batch, split_type,
                                       feature_removal_level, missing_ratio, reverse=reverse_)
