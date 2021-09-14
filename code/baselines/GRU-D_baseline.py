@@ -481,6 +481,7 @@ def train_gru_d(num_runs, input_size, hidden_size, output_size, num_layers, drop
     print('Accuracy = %.1f +/- %.1f' % (mean_acc, std_acc))
     print('AUROC    = %.1f +/- %.1f' % (mean_auc, std_auc))
     print('AUPRC    = %.1f +/- %.1f' % (mean_aupr, std_aupr))
+    print("missing ratio:{}, split type:{},".format(missing_ratio, split_type))
 
     # #show AUROC on test data for last trained epoch
     # test_preds, test_labels = epoch_losses[-1][8], epoch_losses[-1][11]
@@ -499,12 +500,23 @@ def plot_roc_and_auc_score(outputs, labels, title):
     plt.legend(loc='lower right')
     plt.show()
 
+import argparse
+parser = argparse.ArgumentParser()
+parser.add_argument('--dataset', type=str, default='P12', choices=['P12', 'P19', 'eICU', 'PAMAP2']) #
+parser.add_argument('--withmissingratio', default=False, help='if True, missing ratio ranges from 0 to 0.5; if False, missing ratio =0') #
+parser.add_argument('--splittype', type=str, default='random', choices=['random', 'age', 'gender'], help='only use for P12 and P19')
+parser.add_argument('--reverse', default=False, help='if True,use female, older for tarining; if False, use female or younger for training') #
+parser.add_argument('--feature_removal_level', type=str, default='no_removal', choices=['no_removal', 'set', 'sample'],
+                    help='use this only when splittype==random; otherwise, set as no_removal') #
+args = parser.parse_args(args=[])
 
 if __name__ == '__main__':
-    # missing_ratios = [0.0, 0.1, 0.2, 0.3, 0.4, 0.5]   # ratios [0, 1] of missing variables in validation and test set
-    missing_ratios = [0.0]
+    if args.withmissingratio:
+       missing_ratios = [0.0, 0.1, 0.2, 0.3, 0.4, 0.5] # if True, with missing ratio
+    else:
+        missing_ratios = [0]
     for missing_ratio in missing_ratios:
-        num_runs = 5
+        num_runs = 1   # 5 is too slow, use 1 for debug
         input_size = 33   # num of variables base on the paper
         hidden_size = 33  # same as inputsize
         output_size = 1
@@ -514,9 +526,13 @@ if __name__ == '__main__':
         n_epochs = 20
         batch_size = 128
         upsampling_batch = True
-        split_type = 'random'  # possible values: 'random', 'age', 'gender'
-        feature_removal_level = 'set'  # possible values: 'sample', 'set'
-        # missing_ratio = 0.5    # ratio [0, 1] of missing variables in validation and test set
+
+        # split_type = 'random'  # possible values: 'random', 'age', 'gender'
+        # feature_removal_level = 'set'  # possible values: 'sample', 'set'
+        # # missing_ratio = 0.5    # ratio [0, 1] of missing variables in validation and test set
+        split_type = args.splittype #  'gender'  # possible values: 'random', 'age', 'gender' ('age' not possible for dataset 'eICU')
+        reverse_ = args.reverse # False  True
+        feature_removal_level =  args.feature_removal_level #'set'
 
         train_gru_d(num_runs, input_size, hidden_size, output_size, num_layers, dropout, learning_rate, n_epochs,
                     batch_size, upsampling_batch, split_type, feature_removal_level, missing_ratio)
