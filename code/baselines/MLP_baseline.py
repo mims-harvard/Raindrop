@@ -1,18 +1,18 @@
 import numpy as np
 
-wandb = False
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 import os
+
+wandb = False
+
 if wandb:
     import wandb
 
     # wandb.offline
-    # os.environ['WANDB_SILENT']="true"
-
+    os.environ['WANDB_SILENT']="true"
     wandb.login(key=str('14734fe9c5574e019e8f517149a20d6fe1b2fd0d'))
     config = wandb.config
     # run = wandb.init(project='WBtest', config={'wandb_nb':'wandb_three_in_one_hm'})
@@ -25,35 +25,31 @@ from sklearn.metrics import average_precision_score
 import sys
 # os.path.abspath('../')
 # sys.path.append(os.path.abspath('../'))
-from models import TransformerModel, TransformerModel2, SEFT
+
+from models import TransformerModel, TransformerModel2, Simple_classifier
 from utils_baselines import *
-from utils_phy12 import *
+
+# from utils_phy12 import *
 
 torch.manual_seed(1)
 
 import argparse
 parser = argparse.ArgumentParser()
-parser.add_argument('--dataset', type=str, default='P19', choices=['P12', 'P19', 'eICU', 'PAMAP2']) #
-parser.add_argument('--splittype', type=str, default='age', choices=['random', 'age', 'gender'], help='only use for P12 and P19')
-
+parser.add_argument('--dataset', type=str, default='P12', choices=['P12', 'P19', 'eICU', 'PAMAP2']) #
 parser.add_argument('--withmissingratio', default=False, help='if True, missing ratio ranges from 0 to 0.5; if False, missing ratio =0') #
+parser.add_argument('--splittype', type=str, default='random', choices=['random', 'age', 'gender'], help='only use for P12 and P19')
 parser.add_argument('--reverse', default=False, help='if True,use female, older for tarining; if False, use female or younger for training') #
 parser.add_argument('--feature_removal_level', type=str, default='no_removal', choices=['no_removal', 'set', 'sample'],
                     help='use this only when splittype==random; otherwise, set as no_removal') #
-# args = parser.parse_args() #args=[]
-args, unknown = parser.parse_known_args()
-
-
+args = parser.parse_args(args=[])
 
 # training modes
 arch = 'standard'
 
+
 model_path = '../../models/'
 
 dataset = args.dataset     # possible values: 'P12', 'P19', 'eICU'
-print('Dataset used: ', dataset)
-print('args.dataset, args.splittype, args.reverse, args.withmissingratio, args.feature_removal_level',
-      args.dataset, args.splittype, args.reverse, args.withmissingratio, args.feature_removal_level)
 
 if dataset == 'P12':
     base_path = '../../P12data'
@@ -61,6 +57,7 @@ elif dataset == 'P19':
     base_path = '../../P19data'
 elif dataset == 'eICU':
     base_path = '../../eICUdata'
+
 
 # ### show the names of variables and statistic descriptors
 # ts_params = np.load(base_path + '/processed_data/ts_params.npy', allow_pickle=True)
@@ -77,25 +74,28 @@ ts_params= ['ALP', 'ALT', 'AST', 'Albumin', 'BUN', 'Bilirubin', 'Cholesterol', '
  'Urine', 'WBC', 'pH']
 extended_static_params=['Age', 'Gender=0', 'Gender=1', 'Height', 'ICUType=1', 'ICUType=2', 'ICUType=3',
  'ICUType=4', 'Weight']
+
 """split = 'random', 'age', 'gender"""
 """reverse= True: male, age<65 for training. 
  reverse=False: female, age>65 for training"""
 """baseline=True: run baselines. False: run our model (Raindrop)"""
-# split = 'random'
+
+# split = 'random'  # possible values: 'random', 'age', 'gender'
+# feature_removal_level = 'sample'   # possible values: 'sample', 'set'
 # reverse = False
-# feature_removal_level = 'set'   # possible values: 'sample', 'set'
 
 baseline = True
-split = args.splittype  # possible values: 'random', 'age', 'gender' ('age' not possible for dataset 'eICU')
+split = args.splittype  # 'gender'  # possible values: 'random', 'age', 'gender' ('age' not possible for dataset 'eICU')
 reverse = args.reverse  # False  True
 feature_removal_level = args.feature_removal_level  # 'set'
+
+
 
 """While missing_ratio >0, feature_removal_level is automatically used"""
 if args.withmissingratio == True:
     missing_ratios = [0.1, 0.2, 0.3, 0.4, 0.5]  # f True, with missing ratio
 else:
     missing_ratios = [0]
-
 for missing_ratio in missing_ratios:
     # training/model params
     num_epochs = 20
@@ -106,29 +106,26 @@ for missing_ratio in missing_ratios:
         d_inp = 36
     elif dataset == 'P19':
         d_static = 6
-        d_inp = 34
+        d_inp = 34#*2
     elif dataset == 'eICU':
         d_static = 399
         d_inp = 14
     # emb_len     = 10
 
     # d_inp = 36 * 2 # concat mask in mask_normalize function
-    # doesn't has concat mask
+     # doesn't has concat mask
+
     d_model = d_inp  # 256
-
-    # d_model = 32  # 256
-    nhid =  2 * d_model
-
+    nhid = 2 * d_model
     # nhid = 256
     # nhid = 512  # seems to work better than 2*d_model=256
     # nhid = 1024
-
     nlayers = 2  # 2  # the layer doesn't really matters
 
     # nhead = 16 # seems to work better
     nhead = 2  # 8, 16, 32
 
-    dropout = 0.2
+    dropout = 0.3
 
     if dataset == 'P12':
         max_len = 215
@@ -138,7 +135,6 @@ for missing_ratio in missing_ratios:
         max_len = 300
 
     aggreg = 'mean'
-    # aggreg = 'max'
 
     n_classes = 2
     # MAX = d_model
@@ -146,7 +142,7 @@ for missing_ratio in missing_ratios:
 
     n_runs = 1  # change this from 1 to 1, in order to save debugging time.
     n_splits = 5  # change this from 5 to 1, in order to save debugging time.
-    subset = True  # use subset for better debugging in local PC, which only contains 1200 patients
+    subset = False  # use subset for better debugging in local PC, which only contains 1200 patients
 
 
 
@@ -155,7 +151,7 @@ for missing_ratio in missing_ratios:
     auroc_arr = np.zeros((n_splits, n_runs))
     for k in range(n_splits):
         split_idx = k+1
-        # split_idx =
+
         print('Split id: %d' % split_idx)
 
         if dataset == 'P12':
@@ -169,23 +165,9 @@ for missing_ratio in missing_ratios:
             split_path = '/splits/eICU_split' + str(split_idx) + '.npy'
 
         # prepare the data:
-        # print('args.dataset, args.splittype, args.reverse, args.withmissingratio, args.feature_removal_level',
-        #       args.dataset, args.splittype, args.reverse, args.withmissingratio, args.feature_removal_level)
         Ptrain, Pval, Ptest, ytrain, yval, ytest = get_data_split(base_path, split_path, split_type=split,
                                                                   reverse=reverse, baseline=baseline, dataset=dataset)
         print(len(Ptrain), len(Pval), len(Ptest), len(ytrain), len(yval), len(ytest))
-
-        # """New split"""
-        # normalization = False
-        # imputation_method = None  # possible values: None, 'mean', 'forward', 'kNN', 'MICE' (slow execution), 'CubicSpline'
-        # split_type = 'random'  # possible values: 'random', 'age', 'gender'
-        # feature_removal_level = 'set'  # possible values: 'sample', 'set'
-        # # missing_ratio = 0.0     # ratio [0, 1] of missing variables in validation and test set
-        #
-        # (X_features_train, X_static_train, X_time_train, y_train), (X_features_val, X_static_val, X_time_val, y_val), (
-        # X_features_test, X_static_test, X_time_test, y_test) = \
-        #     read_and_prepare_data(base_path, split_path, normalization, feature_removal_level, missing_ratio,
-        #                           imputation=imputation_method, split_type=split_type)
 
         T, F = Ptrain[0]['arr'].shape
         D = len(Ptrain[0]['extended_static'])
@@ -215,55 +197,40 @@ for missing_ratio in missing_ratios:
 
         # remove part of variables in validation and test set
         if missing_ratio > 0:
-            num_all_features = int(Pval_tensor.shape[2] / 2)  # divided by 2, because of mask
+            num_all_features =int(Pval_tensor.shape[2] / 2) # int(Pval_tensor.shape[2] / 2)#  Pval_tensor.shape[2] #   # divided by 2, because of mask
             num_missing_features = round(missing_ratio * num_all_features)
             if feature_removal_level == 'sample':
                 for i, patient in enumerate(Pval_tensor):
                     idx = np.random.choice(num_all_features, num_missing_features, replace=False)
                     patient[:, idx] = torch.zeros(Pval_tensor.shape[1], num_missing_features)  # values
-                    patient[:, idx + num_all_features] = torch.zeros(Pval_tensor.shape[1],
-                                                                     num_missing_features)  # masks
+                    # patient[:, idx + num_all_features] = torch.zeros(Pval_tensor.shape[1], num_missing_features)  # masks
                     Pval_tensor[i] = patient
                 for i, patient in enumerate(Ptest_tensor):
                     idx = np.random.choice(num_all_features, num_missing_features, replace=False)
-                    patient[:, idx] = torch.zeros(Ptest_tensor.shape[1], num_missing_features)  # values
-                    patient[:, idx + num_all_features] = torch.zeros(Ptest_tensor.shape[1],
-                                                                     num_missing_features)  # masks
+                    patient[:, idx] = torch.zeros(Ptest_tensor.shape[1], num_missing_features)   # values
+                    # patient[:, idx + num_all_features] = torch.zeros(Ptest_tensor.shape[1], num_missing_features)  # masks
                     Ptest_tensor[i] = patient
             elif feature_removal_level == 'set':
-                # if dataset == 'P12':
-                #     dataset_prefix = ''
-                # elif dataset == 'P19':
-                #     dataset_prefix = 'P19_'
-                # elif dataset == 'eICU':
-                #     dataset_prefix = 'eICU_'
-                # density_score_indices = np.load('saved/' + dataset_prefix + 'density_scores.npy', allow_pickle=True)[:, 0]
-                density_score_indices = np.load('saved/IG_density_scores_' + dataset + '.npy', allow_pickle=True)[:, 0]
+                if dataset == 'P12':
+                    dataset_prefix = ''
+                elif dataset == 'P19':
+                    dataset_prefix = 'P19_'
+                elif dataset == 'eICU':
+                    dataset_prefix = 'eICU_'
+                # density_score_indices = np.load('saved/' + dataset_prefix + 'density_scores.npy', allow_pickle=True)[:, 0]    # todo: for all 3
+
+                density_score_indices =  np.array([16, 35,0,10,3,5,23,24,34,11,29,1,14,7,30,12,4,13,28,19,9,17,22,
+                                          32,2,18,15,31,20,33,21,25,27,8,26,6])
                 idx = density_score_indices[:num_missing_features].astype(int)
-                Pval_tensor[:, :, idx] = torch.zeros(Pval_tensor.shape[0], Pval_tensor.shape[1], num_missing_features)  # values
-                Pval_tensor[:, :, idx + num_all_features] = torch.zeros(Pval_tensor.shape[0], Pval_tensor.shape[1], num_missing_features)  # masks
-                Ptest_tensor[:, :, idx] = torch.zeros(Ptest_tensor.shape[0], Ptest_tensor.shape[1], num_missing_features)  # values
-                Ptest_tensor[:, :, idx + num_all_features] = torch.zeros(Ptest_tensor.shape[0], Ptest_tensor.shape[1], num_missing_features)  # masks
+                Pval_tensor[:, :, idx] = torch.zeros(Pval_tensor.shape[0], Pval_tensor.shape[1], num_missing_features)   # values
+                # Pval_tensor[:, :, idx + num_all_features] = torch.zeros(Pval_tensor.shape[0], Pval_tensor.shape[1], num_missing_features)  # masks
+                Ptest_tensor[:, :, idx] = torch.zeros(Ptest_tensor.shape[0], Ptest_tensor.shape[1], num_missing_features)   # values
+                # Ptest_tensor[:, :, idx + num_all_features] = torch.zeros(Ptest_tensor.shape[0], Ptest_tensor.shape[1], num_missing_features)  # masks
 
         # convert to (seq_len, batch, feats)
         Ptrain_tensor = Ptrain_tensor.permute(1, 0, 2)  # shape: [215, 960, 72]
         Pval_tensor = Pval_tensor.permute(1, 0, 2)
         Ptest_tensor = Ptest_tensor.permute(1, 0, 2)
-        """Mask out some variables: [ 8, 14, 17, 20, 21, 22, 29, 30, 33] (sparse ratio>0.1)
-        1. We train on all sensors, but testing with partial sensors
-        2. Train and test on partial sensors. """
-        # # variable = [ 8, 14, 17, 20, 21, 22, 29, 30, 33]  # AUROC =76.5 if only keep these variables
-        #
-        # # AUROC =83.9 if only keep these variables; AUROC =75.1 (simple_classifier) if remove these variables; 77.4 (set function)
-        # variable = [ 8,  9, 10, 13, 14, 17, 18, 20, 21, 22, 24, 25, 27, 29, 30, 33, 35]
-        #
-        # # variable = [9, 10, 13, 18, 24, 25, 27, 35] # AUROC =79.7 if only keep these variables
-        # for i in range(36):
-        #     # if i not in variable:
-        #     if i in variable:
-        #     #     #Ptrain_tensor[:, :, i]=0
-        #         Pval_tensor[:, :, i] = 0
-        #         Ptest_tensor[:, :, i] = 0
 
         # convert to (seq_len, batch)
         Ptrain_time_tensor = Ptrain_time_tensor.squeeze(2).permute(1, 0)
@@ -276,8 +243,7 @@ for missing_ratio in missing_ratios:
             # instantiate model
             # model = TransformerModel2(d_inp, d_model, nhead, nhid, nlayers, dropout, max_len,
             #                           d_static, MAX, 0.5, aggreg, n_classes)
-
-            model = SEFT(d_inp, d_model, nhead, nhid, nlayers, dropout, max_len,
+            model = Simple_classifier(d_inp, d_model, nhead, nhid, nlayers, dropout, max_len,
                                       d_static, MAX, 0.5, aggreg, n_classes)
 
             model = model.cuda()
@@ -286,7 +252,7 @@ for missing_ratio in missing_ratios:
 
             optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
             scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=0.1,
-                                                                   patience=1, threshold=0.001, threshold_mode='rel',
+                                                                   patience=1, threshold=0.0001, threshold_mode='rel',
                                                                    cooldown=0, min_lr=1e-8, eps=1e-08, verbose=True)
 
             idx_0 = np.where(ytrain == 0)[0]
@@ -363,8 +329,6 @@ for missing_ratio in missing_ratios:
                 """Training performance"""
                 train_probs = torch.squeeze(torch.sigmoid(outputs))
                 train_probs = train_probs.cpu().detach().numpy()
-                train_probs = np.nan_to_num(train_probs)
-
                 train_y = y.cpu().detach().numpy()
                 train_auroc = roc_auc_score(train_y, train_probs[:, 1])
                 train_auprc = average_precision_score(train_y, train_probs[:, 1])
@@ -381,14 +345,18 @@ for missing_ratio in missing_ratios:
                 """Use the last """
                 """Validation"""
                 model.eval()
-                if epoch == 0 or epoch % 1 == 0:
+                if epoch ==0 or epoch % 1 == 0:
                     with torch.no_grad():
                         out_val = evaluate_standard(model, Pval_tensor, Pval_time_tensor, Pval_static_tensor)
                         out_val = torch.squeeze(torch.sigmoid(out_val))
                         out_val = out_val.detach().cpu().numpy()
-                        out_val = np.nan_to_num(out_val)
+
+                        # denoms = np.sum(np.exp(out_val), axis=1).reshape((-1, 1))
+                        # probs = np.exp(out_val) / denoms
+                        # ypred = np.argmax(out_val, axis=1)
 
                         val_loss = criterion(torch.from_numpy(out_val), torch.from_numpy(yval.squeeze(1)).long())
+
                         auc_val = roc_auc_score(yval, out_val[:, 1])
                         aupr_val = average_precision_score(yval, out_val[:, 1])
                         print("Validataion: Epoch %d,  val_loss:%.4f, aupr_val: %.2f, auc_val: %.2f" % (epoch,
@@ -396,17 +364,18 @@ for missing_ratio in missing_ratios:
                         # print(confusion_matrix(yval, np.argmax(out_val, axis=1),))
 
                         if wandb:
-                            wandb.log({"val_loss": val_loss.item(), "val_auprc": aupr_val, "val_auroc": auc_val})
+                            wandb.log({ "val_loss": val_loss.item(), "val_auprc": aupr_val, "val_auroc": auc_val})
 
                         scheduler.step(aupr_val)
                         # save model
-                        if aupr_val > best_aupr_val:
-                            best_aupr_val = aupr_val
-                        # if auc_val > best_auc_val:
-                        #     best_auc_val = auc_val
+                        # if aupr_val > best_aupr_val:
+                        #     best_aupr_val = aupr_val
+                        if auc_val > best_auc_val:
+                            best_auc_val = auc_val
                             print(
                                 "**[S] Epoch %d, aupr_val: %.4f, auc_val: %.4f **" % (epoch, aupr_val * 100, auc_val * 100))
                             torch.save(model.state_dict(), model_path + arch + '_' + str(split_idx) + '.pt')
+
                 # if epoch == 3:
                 #     end = time.time()
                 #     time_elapsed = end - start
@@ -422,11 +391,13 @@ for missing_ratio in missing_ratios:
 
             with torch.no_grad():
                 out_test = evaluate(model, Ptest_tensor, Ptest_time_tensor, Ptest_static_tensor).numpy()
-                out_test = np.nan_to_num(out_test)  # if there is nan, convert to 0.
                 ypred = np.argmax(out_test, axis=1)
+                out_test = np.nan_to_num(out_test)
 
                 denoms = np.sum(np.exp(out_test), axis=1).reshape((-1, 1))
+                out_test = np.nan_to_num(out_test)
                 probs = np.exp(out_test) / denoms
+                probs = np.nan_to_num(probs)
 
                 auc = roc_auc_score(ytest, probs[:, 1])
                 aupr = average_precision_score(ytest, probs[:, 1])
@@ -434,6 +405,7 @@ for missing_ratio in missing_ratios:
                 print('Testing: AUROC = %.2f | AUPRC = %.2f | Accuracy = %.2f' % (auc * 100, aupr * 100, acc * 100))
                 print('classification report', classification_report(ytest, ypred))
                 print(confusion_matrix(ytest, ypred, labels=[0, 1]))
+
             # store
             acc_arr[k, m] = acc * 100
             auprc_arr[k, m] = aupr * 100
@@ -445,9 +417,7 @@ for missing_ratio in missing_ratios:
     auprc_vec = [auprc_arr[k, idx_max[k]] for k in range(n_splits)]
     auroc_vec = [auroc_arr[k, idx_max[k]] for k in range(n_splits)]
 
-    print("split type:{}, reverse:{}, using baseline:{}, missing ratio:{}".format(split, reverse, baseline, missing_ratio))
-    print('args.dataset, args.splittype, args.reverse, args.withmissingratio, args.feature_removal_level',
-          args.dataset, args.splittype, args.reverse, args.withmissingratio, args.feature_removal_level)
+    print("missing ratio:{}, split type:{}, reverse:{}, using baseline:{}".format(missing_ratio, split, reverse, baseline))
 
     # display mean and standard deviation
     mean_acc, std_acc = np.mean(acc_vec), np.std(acc_vec)
@@ -463,7 +433,7 @@ for missing_ratio in missing_ratios:
     if wandb:
         wandb.finish()
 
-    # save in numpy file
+    # # save in numpy file
     # np.save('./results/' + arch + '_phy12_setfunction.npy', [acc_vec, auprc_vec, auroc_vec])
 
 

@@ -222,22 +222,6 @@ def data_dataloader(dataset, outcomes, upsampling_batch, batch_size, split_type,
     return train_dataloader, dev_dataloader, test_dataloader
 
 
-'''
-in the paper : 49 layers, 33 input, 18838 parameters
-input : 10-weights(*input), 6 - biases
-Y: 1 weight(hidden*output), 1 bias(output)
-Input : hidden : output : layer  = # of parameters : len(para)
-1:1:1:1 = 18 : 18
-2:1:1:1 = 25 : 18  // +7 as expected
-1:1:1:2 = 34 : 18 // 34 = 16*2 + 2
-33:33:1:1 = 562 : 18 // 16*33(528) + 33*1 +1 = 562
-33:33:5:1 = 698 : 18 // 16*33(528) + 33*5(165) +5 = 698
-33:33:5:49 = 26042 : 18 // 16*33*49(25872) + 33*5(165) +5 = 698
-weights = 10*33*49(16170) + 33*5(165) = 16335 gap : 2503
-
-'''
-
-
 def train_gru_d(num_runs, input_size, hidden_size, output_size, num_layers, dropout, learning_rate, n_epochs,
                 batch_size, upsampling_batch, split_type, feature_removal_level, missing_ratio, dataset):
     model_path = 'saved/grud_model_best.pt'
@@ -531,33 +515,51 @@ def plot_roc_and_auc_score(outputs, labels, title):
 
 
 if __name__ == '__main__':
-    dataset = 'P19'  # possible values: 'P12', 'P19', 'eICU'
-    print('Dataset used: ', dataset)
+    import argparse
 
-    if dataset == 'P12':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--dataset', type=str, default='P19', choices=['P12', 'P19', 'eICU', 'PAMAP2'])
+    parser.add_argument('--withmissingratio', default=False,
+                        help='if True, missing ratio ranges from 0 to 0.5; if False, missing ratio =0')  #
+    parser.add_argument('--splittype', type=str, default='random', choices=['random', 'age', 'gender'],
+                        help='only use for P12 and P19')
+    parser.add_argument('--reverse', default=False,
+                        help='if True,use female, older for tarining; if False, use female or younger for training')  #
+    parser.add_argument('--feature_removal_level', type=str, default='no_removal',
+                        choices=['no_removal', 'set', 'sample'],
+                        help='use this only when splittype==random; otherwise, set as no_removal')  #
+    args = parser.parse_args(args=[])
+
+    print('Dataset used: ', args.dataset)   # possible values: 'P12', 'P19', 'eICU'
+
+    if args.dataset == 'P12':
         input_size = 33  # num of variables base on the paper
         hidden_size = 33  # same as inputsize
-    elif dataset == 'P19':
+    elif args.dataset == 'P19':
         input_size = 40
         hidden_size = 40
-    elif dataset == 'eICU':
+    elif args.dataset == 'eICU':
         input_size = 16
         hidden_size = 16
 
-    # missing_ratios = [0.0, 0.1, 0.2, 0.3, 0.4, 0.5]   # ratios [0, 1] of missing variables in validation and test set
-    missing_ratios = [0.0]
+    if args.withmissingratio == True:
+        missing_ratios = [0.1, 0.2, 0.3, 0.4, 0.5]  # if True, with missing ratio
+    else:
+        missing_ratios = [0]
+
     for missing_ratio in missing_ratios:
-        num_runs = 5
+        num_runs = 1  # 5 is too slow, use 1 for debug
         output_size = 1
         num_layers = 49  # num of step or layers base on the paper / number of hidden states
-        dropout = 0.0    # dropout_type : Moon, Gal, mloss
+        dropout = 0.0  # dropout_type : Moon, Gal, mloss
         learning_rate = 0.001
         n_epochs = 20
         batch_size = 128
         upsampling_batch = True
-        split_type = 'random'  # possible values: 'random', 'age', 'gender'
-        feature_removal_level = 'set'  # possible values: 'sample', 'set'
+
+        split_type = args.splittype  # possible values: 'random', 'age', 'gender' ('age' not possible for dataset 'eICU')
+        reverse_ = args.reverse  # False  True
+        feature_removal_level = args.feature_removal_level  # possible values: 'sample', 'set'
 
         train_gru_d(num_runs, input_size, hidden_size, output_size, num_layers, dropout, learning_rate, n_epochs,
-                    batch_size, upsampling_batch, split_type, feature_removal_level, missing_ratio, dataset)
-
+                    batch_size, upsampling_batch, split_type, feature_removal_level, missing_ratio, args.dataset)
