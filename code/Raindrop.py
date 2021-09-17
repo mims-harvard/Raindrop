@@ -79,14 +79,14 @@ for missing_ratio in missing_ratios:
 
     if dataset == 'P12':
         d_static = 9
+        d_inp = 36
     elif dataset == 'P19':
         d_static = 6
+        d_inp = 34
     elif dataset == 'eICU':
         d_static = 399
+        d_inp = 14
     # emb_len     = 10
-
-    # d_inp = 36 * 2 # concat mask in mask_normalize function
-    d_inp = 36*1  # doesn't has concat mask
 
     dim = 1  # the dim of each node features
     d_model = 36 *dim  #  64  # 256
@@ -242,13 +242,14 @@ for missing_ratio in missing_ratios:
                     patient[:, idx + num_all_features] = torch.zeros(Ptest_tensor.shape[1], num_missing_features)  # masks
                     Ptest_tensor[i] = patient
             elif feature_removal_level == 'set':
-                if dataset == 'P12':
-                    dataset_prefix = ''
-                elif dataset == 'P19':
-                    dataset_prefix = 'P19_'
-                elif dataset == 'eICU':
-                    dataset_prefix = 'eICU_'
-                density_score_indices = np.load('baselines/saved/' + dataset_prefix + 'density_scores.npy', allow_pickle=True)[:, 0]
+                # if dataset == 'P12':
+                #     dataset_prefix = ''
+                # elif dataset == 'P19':
+                #     dataset_prefix = 'P19_'
+                # elif dataset == 'eICU':
+                #     dataset_prefix = 'eICU_'
+                # density_score_indices = np.load('baselines/saved/' + dataset_prefix + 'density_scores.npy', allow_pickle=True)[:, 0]
+                density_score_indices = np.load('baselines/saved/IG_density_scores_' + dataset + '.npy', allow_pickle=True)[:, 0]
                 idx = density_score_indices[:num_missing_features].astype(int)
                 Pval_tensor[:, :, idx] = torch.zeros(Pval_tensor.shape[0], Pval_tensor.shape[1], num_missing_features)  # values
                 Pval_tensor[:, :, idx + num_all_features] = torch.zeros(Pval_tensor.shape[0], Pval_tensor.shape[1], num_missing_features)  # masks
@@ -420,7 +421,7 @@ for missing_ratio in missing_ratios:
                         # probs = np.exp(out_val) / denoms
                         # ypred = np.argmax(out_val, axis=1)
 
-                        val_loss = criterion(torch.from_numpy(out_val), torch.from_numpy(yval.squeeze(1)))
+                        val_loss = criterion(torch.from_numpy(out_val), torch.from_numpy(yval.squeeze(1)).long())
 
                         """here use softmax for the calculation of metrics"""
                         out_val = softmax(out_val, axis=1)

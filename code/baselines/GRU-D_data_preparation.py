@@ -5,58 +5,6 @@ import math
 import matplotlib.pyplot as plt
 
 
-inputpath_1 = '../../P12data/rawdata/set-a/'
-inputpath_2 = '../../P12data/rawdata/set-b/'
-inputpath_3 = '../../P12data/rawdata/set-c/'
-
-inputdict = {
-    "ALP" : 0,             # o
-    "ALT" : 1,             # o
-    "AST" : 2,             # o
-    "Albumin" : 3,         # o
-    "BUN" : 4,             # o
-    "Bilirubin" : 5,       # o
-    "Cholesterol" : 6,     # o
-    "Creatinine" : 7,      # o
-    "DiasABP" : 8,         # o
-    "FiO2" : 9,            # o
-    "GCS" : 10,            # o
-    "Glucose" : 11,        # o
-    "HCO3" : 12,           # o
-    "HCT" : 13,            # o
-    "HR" : 14,             # o
-    "K" : 15,              # o
-    "Lactate" : 16,        # o
-    "MAP" : 17,            # o
-    "Mg" : 18,             # o
-    "Na" : 19,             # o
-    "PaCO2" : 20,          # o
-    "PaO2" : 21,           # o
-    "Platelets" : 22,      # o
-    "RespRate" : 23,       # o
-    "SaO2" : 24,           # o
-    "SysABP" : 25,         # o
-    "Temp" : 26,           # o
-    "Tropl" : 27,          # o
-    "TroponinI" : 27,      # temp: regarded same as Tropl
-    "TropT" : 28,          # o
-    "TroponinT" : 28,      # temp: regarded same as TropT
-    "Urine" : 29,          # o
-    "WBC" : 30,            # o
-    "Weight" : 31,         # o
-    "pH" : 32,             # o
-    "NIDiasABP" : 33,      # unused variable
-    "NIMAP" : 34,          # unused variable
-    "NISysABP" : 35,       # unused variable
-    "MechVent" : 36,       # unused variable
-    "RecordID" : 37,       # unused variable
-    "Age" : 38,            # unused variable
-    "Gender" :39,          # unused variable
-    "ICUType" : 40,        # unused variable
-    "Height": 41           # unused variable
-}
-
-
 # functions to process the time in the data
 def timeparser(time):
     return pd.to_timedelta(time + ':00')
@@ -84,52 +32,6 @@ def df_to_inputs(df, inputdict, inputs):
 
     return inputs
 
-
-inputs = []
-
-# prepare empty list to put data
-# len(inputdict)-2: two items has same agg_no
-for i in range(len(inputdict)-2):
-    t = []
-    inputs.append(t)
-
-# read all the files in the input folder
-for filename in os.listdir(inputpath_1):
-    df = pd.read_csv(inputpath_1 + filename, header=0, parse_dates=['Time'], date_parser=timeparser)
-
-    inputs = df_to_inputs(df=df, inputdict=inputdict, inputs=inputs)
-
-for filename in os.listdir(inputpath_2):
-    df = pd.read_csv(inputpath_2 + filename, header=0, parse_dates=['Time'], date_parser=timeparser)
-
-    inputs = df_to_inputs(df=df, inputdict=inputdict, inputs=inputs)
-
-for filename in os.listdir(inputpath_3):
-    df = pd.read_csv(inputpath_3 + filename, header=0, parse_dates=['Time'], date_parser=timeparser)
-
-    inputs = df_to_inputs(df=df, inputdict=inputdict, inputs=inputs)
-
-print(inputs[0][0])
-
-# save inputs just in case
-np.save('saved/inputs.npy', inputs, allow_pickle=True)
-loaded_inputs = np.load('saved/inputs.npy', allow_pickle=True)
-print(loaded_inputs[0][0])
-
-
-
-# make input items list
-input_columns = list(inputdict.keys())
-
-
-# remove two overlaped items
-# "TroponinI" : 27, #temp
-# "TroponinT" : 28, #temp
-
-input_columns.remove("TroponinI")
-input_columns.remove("TroponinT")
-print(input_columns)
-print(len(input_columns))
 
 
 # describe the data
@@ -167,34 +69,19 @@ def describe(inputs, input_columns, inputdict, hist=False):
     return desc
 
 
-desc = describe(loaded_inputs, input_columns, inputdict, hist=False)
-desc = np.asarray(desc)
-print(desc.shape)
-
-# save desc
-# 0: count, 1: min, 2: max, 3: mean, 4: median, 5: std, 6: var
-np.save('saved/desc.npy', desc)
-loaded_desc = np.load('saved/desc.npy')
-
-
-# def normalization(desc, inputs):
-#     # for each catagory
-#     for i in range(desc.shape[0]):
-#         # for each value
-#         for j in range(len(inputs[i])):
-#             inputs[i][j] = (inputs[i][j] - desc[i][3])/desc[i][5]
-#     return inputs
-
-
 
 # dataframe to dataset
-
-def df_to_x_m_d(df, inputdict, size, id_posistion, split):
+def df_to_x_m_d(df, inputdict, size, id_posistion, split, dataset_name='P12'):
     grouped_data = df.groupby('Time')
 
     #generate input vectors
-    x = np.zeros((len(inputdict)-2, grouped_data.ngroups))
-    masking = np.zeros((len(inputdict)-2, grouped_data.ngroups))
+    if dataset_name == 'P12':
+        x = np.zeros((len(inputdict) - 2, grouped_data.ngroups))
+        masking = np.zeros((len(inputdict) - 2, grouped_data.ngroups))
+    elif dataset_name == 'P19' or 'eICU':
+        x = np.zeros((len(inputdict), grouped_data.ngroups))
+        masking = np.zeros((len(inputdict), grouped_data.ngroups))
+
     delta = np.zeros((split, size))
     timetable = np.zeros(grouped_data.ngroups)
     id = 0
@@ -206,8 +93,16 @@ def df_to_x_m_d(df, inputdict, size, id_posistion, split):
     if grouped_data.ngroups > size:
 
         # fill the x and masking vectors
-        pre_time = pd.to_timedelta(0)
+        if dataset_name == 'P12':
+            pre_time = pd.to_timedelta(0)
+        elif dataset_name == 'P19' or 'eICU':
+            pre_time = 0
+
         t = 0
+        # if dataset_name == 'P12':
+        #     t = 0
+        # elif dataset_name == 'P19' or 'eICU':
+        #     t = -1
         for row_index, value in df.iterrows():
 
             # t = colum, time frame
@@ -221,7 +116,10 @@ def df_to_x_m_d(df, inputdict, size, id_posistion, split):
             if pre_time != value.Time:
                 pre_time = value.Time
                 t += 1
-                timetable[t] = timedelta_to_day_figure(value.Time)
+                if dataset_name == 'P12':
+                    timetable[t] = timedelta_to_day_figure(value.Time)
+                elif dataset_name == 'P19' or 'eICU':
+                    timetable[t] = value.Time
 
             #print('agg_no : {}\t t : {}\t value : {}'.format(agg_no, t, value.Value))
             x[agg_no, t] = value.Value
@@ -296,7 +194,11 @@ def df_to_x_m_d(df, inputdict, size, id_posistion, split):
     else:
 
         # fill the x and masking vectors
-        pre_time = pd.to_timedelta(0)
+        if dataset_name == 'P12':
+            pre_time = pd.to_timedelta(0)
+        elif dataset_name == 'P19' or 'eICU':
+            pre_time = 0
+
         t = 0
         for row_index, value in df.iterrows():
 
@@ -311,7 +213,10 @@ def df_to_x_m_d(df, inputdict, size, id_posistion, split):
             if pre_time != value.Time:
                 pre_time = value.Time
                 t += 1
-                timetable[t] = timedelta_to_day_figure(value.Time)
+                if dataset_name == 'P12':
+                    timetable[t] = timedelta_to_day_figure(value.Time)
+                elif dataset_name == 'P19' or 'eICU':
+                    timetable[t] = value.Time
 
             #print('agg_no : {}\t t : {}\t value : {}'.format(agg_no, t, value.Value))
             x[agg_no, t] = value.Value
@@ -355,54 +260,6 @@ def df_to_x_m_d(df, inputdict, size, id_posistion, split):
     return s_dataset, all_x, id
 
 
-# def df_to_x_m_d(df, inputdict, mean, std, size, id_posistion, split):
-size = 49  # steps ~ from the paper
-id_posistion = 37
-input_length = 33  # input variables ~ from the paper
-dataset = np.zeros((1, 3, input_length, size))
-
-all_x_add = np.zeros((input_length, 1))
-
-for filename in os.listdir(inputpath_1):
-    df = pd.read_csv(inputpath_1 + filename, header=0, parse_dates=['Time'], date_parser=timeparser)
-    s_dataset, all_x, id = df_to_x_m_d(df=df, inputdict=inputdict, size=size, id_posistion=id_posistion, split=input_length)
-
-    dataset = np.concatenate((dataset, s_dataset[np.newaxis, :,:,:]))
-    all_x_add = np.concatenate((all_x_add, all_x), axis=1)
-
-for filename in os.listdir(inputpath_2):
-    df = pd.read_csv(inputpath_2 + filename, header=0, parse_dates=['Time'], date_parser=timeparser)
-    s_dataset, all_x, id = df_to_x_m_d(df=df, inputdict=inputdict, size=size, id_posistion=id_posistion,
-                                       split=input_length)
-
-    dataset = np.concatenate((dataset, s_dataset[np.newaxis, :, :, :]))
-    all_x_add = np.concatenate((all_x_add, all_x), axis=1)
-
-for filename in os.listdir(inputpath_3):
-    df = pd.read_csv(inputpath_3 + filename, header=0, parse_dates=['Time'], date_parser=timeparser)
-    s_dataset, all_x, id = df_to_x_m_d(df=df, inputdict=inputdict, size=size, id_posistion=id_posistion,
-                                       split=input_length)
-
-    dataset = np.concatenate((dataset, s_dataset[np.newaxis, :, :, :]))
-    all_x_add = np.concatenate((all_x_add, all_x), axis=1)
-
-
-dataset = dataset[1:, :,:,:]
-# (total datasets, kind of data(x, masking, and delta), input length, num of varience)
-# (4000, 3, 33, 49)
-print(dataset.shape)
-print(dataset[0].shape)
-print(dataset[0][0][0])
-
-print(all_x_add.shape)
-all_x_add = all_x_add[:, 1:]
-print(all_x_add.shape)
-
-train_proportion = 0.8
-train_index = int(all_x_add.shape[1] * train_proportion)
-train_x = all_x_add[:, :train_index]
-print(train_x.shape)
-
 
 def get_mean(x):
     x_mean = []
@@ -436,15 +293,6 @@ def get_var(x):
     return x_var
 
 
-x_mean = get_mean(train_x)
-print(x_mean)
-print(len(x_mean))
-
-x_std = get_std(train_x)
-print(x_std)
-print(len(x_std))
-
-
 # dataset shape : (4000, 3, 33, 49)
 def dataset_normalize(dataset, mean, std):
     for i in range(dataset.shape[0]):
@@ -452,13 +300,6 @@ def dataset_normalize(dataset, mean, std):
         dataset[i][0] = dataset[i][0]/std[:, None]
 
     return dataset
-
-
-x_mean = np.asarray(x_mean)
-x_std = np.asarray(x_std)
-
-dataset = dataset_normalize(dataset=dataset, mean=x_mean, std=x_std)
-print(dataset[0][0][0])
 
 
 def normalize_chk(dataset):
@@ -483,17 +324,6 @@ def normalize_chk(dataset):
     return mean, median, std, var
 
 
-nor_mean, nor_median, nor_std, nor_var = normalize_chk(dataset)
-
-np.save('saved/x_mean_aft_nor', nor_mean)
-np.save('saved/x_median_aft_nor', nor_median)
-np.save('saved/dataset.npy', dataset)
-
-
-t_dataset = np.load('saved/dataset.npy')
-print(t_dataset.shape)
-
-
 # only check In-hospital_death
 def df_to_y1(df):
     output = df.values
@@ -502,15 +332,445 @@ def df_to_y1(df):
     return output
 
 
-A_outcomes = pd.read_csv('../../P12data/rawdata/Outcomes-a.txt')
-B_outcomes = pd.read_csv('../../P12data/rawdata/Outcomes-b.txt')
-C_outcomes = pd.read_csv('../../P12data/rawdata/Outcomes-c.txt')
+if __name__ == '__main__':
+    dataset_name = 'eICU'  # possible values: 'P12', 'P19', 'eICU'
+    print('Dataset used: ', dataset_name)
 
-y_a_outcomes = df_to_y1(A_outcomes)
-y_b_outcomes = df_to_y1(B_outcomes)
-y_c_outcomes = df_to_y1(C_outcomes)
+    if dataset_name == 'P12':
+        inputpath_1 = '../../P12data/rawdata/set-a/'
+        inputpath_2 = '../../P12data/rawdata/set-b/'
+        inputpath_3 = '../../P12data/rawdata/set-c/'
 
-y1_outcomes = np.concatenate((y_a_outcomes, y_b_outcomes, y_c_outcomes))
-print(y1_outcomes.shape)
-np.save('saved/y1_out', y1_outcomes)
+        inputdict = {
+            "ALP" : 0,             # o
+            "ALT" : 1,             # o
+            "AST" : 2,             # o
+            "Albumin" : 3,         # o
+            "BUN" : 4,             # o
+            "Bilirubin" : 5,       # o
+            "Cholesterol" : 6,     # o
+            "Creatinine" : 7,      # o
+            "DiasABP" : 8,         # o
+            "FiO2" : 9,            # o
+            "GCS" : 10,            # o
+            "Glucose" : 11,        # o
+            "HCO3" : 12,           # o
+            "HCT" : 13,            # o
+            "HR" : 14,             # o
+            "K" : 15,              # o
+            "Lactate" : 16,        # o
+            "MAP" : 17,            # o
+            "Mg" : 18,             # o
+            "Na" : 19,             # o
+            "PaCO2" : 20,          # o
+            "PaO2" : 21,           # o
+            "Platelets" : 22,      # o
+            "RespRate" : 23,       # o
+            "SaO2" : 24,           # o
+            "SysABP" : 25,         # o
+            "Temp" : 26,           # o
+            "Tropl" : 27,          # o
+            "TroponinI" : 27,      # temp: regarded same as Tropl
+            "TropT" : 28,          # o
+            "TroponinT" : 28,      # temp: regarded same as TropT
+            "Urine" : 29,          # o
+            "WBC" : 30,            # o
+            "Weight" : 31,         # o
+            "pH" : 32,             # o
+            "NIDiasABP" : 33,      # unused variable
+            "NIMAP" : 34,          # unused variable
+            "NISysABP" : 35,       # unused variable
+            "MechVent" : 36,       # unused variable
+            "RecordID" : 37,       # unused variable
+            "Age" : 38,            # unused variable
+            "Gender" :39,          # unused variable
+            "ICUType" : 40,        # unused variable
+            "Height": 41           # unused variable
+        }
+
+        inputs = []
+
+        # prepare empty list to put data
+        # len(inputdict)-2: two items has same agg_no
+        for i in range(len(inputdict)-2):
+            t = []
+            inputs.append(t)
+
+        # read all the files in the input folder
+        for filename in os.listdir(inputpath_1):
+            df = pd.read_csv(inputpath_1 + filename, header=0, parse_dates=['Time'], date_parser=timeparser)
+
+            inputs = df_to_inputs(df=df, inputdict=inputdict, inputs=inputs)
+
+        for filename in os.listdir(inputpath_2):
+            df = pd.read_csv(inputpath_2 + filename, header=0, parse_dates=['Time'], date_parser=timeparser)
+
+            inputs = df_to_inputs(df=df, inputdict=inputdict, inputs=inputs)
+
+        for filename in os.listdir(inputpath_3):
+            df = pd.read_csv(inputpath_3 + filename, header=0, parse_dates=['Time'], date_parser=timeparser)
+
+            inputs = df_to_inputs(df=df, inputdict=inputdict, inputs=inputs)
+
+        print(inputs[0][0])
+
+        # save inputs just in case
+        np.save('saved/inputs.npy', inputs, allow_pickle=True)
+        loaded_inputs = np.load('saved/inputs.npy', allow_pickle=True)
+        print(loaded_inputs[0][0])
+
+
+        # make input items list
+        input_columns = list(inputdict.keys())
+
+        # remove two overlaped items
+        # "TroponinI" : 27, #temp
+        # "TroponinT" : 28, #temp
+
+        input_columns.remove("TroponinI")
+        input_columns.remove("TroponinT")
+        print(input_columns)
+        print(len(input_columns))
+
+
+        desc = describe(loaded_inputs, input_columns, inputdict, hist=False)
+        desc = np.asarray(desc)
+        print(desc.shape)
+
+        # save desc
+        # 0: count, 1: min, 2: max, 3: mean, 4: median, 5: std, 6: var
+        np.save('saved/desc.npy', desc)
+        loaded_desc = np.load('saved/desc.npy')
+
+
+        # def df_to_x_m_d(df, inputdict, mean, std, size, id_posistion, split):
+        size = 49  # steps ~ from the paper
+        id_posistion = 37
+        input_length = 33  # input variables ~ from the paper
+        dataset = np.zeros((1, 3, input_length, size))
+
+        all_x_add = np.zeros((input_length, 1))
+
+        for filename in os.listdir(inputpath_1):
+            df = pd.read_csv(inputpath_1 + filename, header=0, parse_dates=['Time'], date_parser=timeparser)
+            s_dataset, all_x, id = df_to_x_m_d(df=df, inputdict=inputdict, size=size, id_posistion=id_posistion, split=input_length)
+
+            dataset = np.concatenate((dataset, s_dataset[np.newaxis, :,:,:]))
+            all_x_add = np.concatenate((all_x_add, all_x), axis=1)
+
+        for filename in os.listdir(inputpath_2):
+            df = pd.read_csv(inputpath_2 + filename, header=0, parse_dates=['Time'], date_parser=timeparser)
+            s_dataset, all_x, id = df_to_x_m_d(df=df, inputdict=inputdict, size=size, id_posistion=id_posistion,
+                                               split=input_length)
+
+            dataset = np.concatenate((dataset, s_dataset[np.newaxis, :, :, :]))
+            all_x_add = np.concatenate((all_x_add, all_x), axis=1)
+
+        for filename in os.listdir(inputpath_3):
+            df = pd.read_csv(inputpath_3 + filename, header=0, parse_dates=['Time'], date_parser=timeparser)
+            s_dataset, all_x, id = df_to_x_m_d(df=df, inputdict=inputdict, size=size, id_posistion=id_posistion,
+                                               split=input_length)
+
+            dataset = np.concatenate((dataset, s_dataset[np.newaxis, :, :, :]))
+            all_x_add = np.concatenate((all_x_add, all_x), axis=1)
+
+
+        dataset = dataset[1:, :,:,:]
+        # (total datasets, kind of data(x, masking, and delta), input length, num of varience)
+        # (4000, 3, 33, 49)
+        print(dataset.shape)
+        print(dataset[0].shape)
+        print(dataset[0][0][0])
+
+        print(all_x_add.shape)
+        all_x_add = all_x_add[:, 1:]
+        print(all_x_add.shape)
+
+        train_proportion = 0.8
+        train_index = int(all_x_add.shape[1] * train_proportion)
+        train_x = all_x_add[:, :train_index]
+        print(train_x.shape)
+
+
+        x_mean = get_mean(train_x)
+        print(x_mean)
+        print(len(x_mean))
+
+        x_std = get_std(train_x)
+        print(x_std)
+        print(len(x_std))
+
+        x_mean = np.asarray(x_mean)
+        x_std = np.asarray(x_std)
+
+        dataset = dataset_normalize(dataset=dataset, mean=x_mean, std=x_std)
+        print(dataset[0][0][0])
+
+        nor_mean, nor_median, nor_std, nor_var = normalize_chk(dataset)
+
+        np.save('saved/x_mean_aft_nor', nor_mean)
+        np.save('saved/x_median_aft_nor', nor_median)
+        np.save('saved/dataset.npy', dataset)
+
+        t_dataset = np.load('saved/dataset.npy')
+        print(t_dataset.shape)
+
+        A_outcomes = pd.read_csv('../../P12data/rawdata/Outcomes-a.txt')
+        B_outcomes = pd.read_csv('../../P12data/rawdata/Outcomes-b.txt')
+        C_outcomes = pd.read_csv('../../P12data/rawdata/Outcomes-c.txt')
+
+        y_a_outcomes = df_to_y1(A_outcomes)
+        y_b_outcomes = df_to_y1(B_outcomes)
+        y_c_outcomes = df_to_y1(C_outcomes)
+
+        y1_outcomes = np.concatenate((y_a_outcomes, y_b_outcomes, y_c_outcomes))
+        print(y1_outcomes.shape)
+        np.save('saved/y1_out', y1_outcomes)
+
+    elif dataset_name == 'P19':
+        data = np.load('../../P19data/processed_data/PT_dict_list_6.npy', allow_pickle=True)
+        labels_ts = np.load('../../P19data/processed_data/labels_ts.npy', allow_pickle=True)
+        labels_static = np.load('../../P19data/processed_data/labels_demogr.npy', allow_pickle=True)
+
+        all_labels = np.concatenate((labels_static, labels_ts))
+
+        inputdict = {label: i for i, label in enumerate(all_labels)}
+
+        # prepare empty list to put data
+        inputs = [[] for i in range(len(inputdict))]
+        i = 0
+        for patient in data:
+            if i % 1000 == 0:
+                print(i)
+            i += 1
+
+            length = patient['length']
+            arr = patient['arr']
+            time = patient['time']
+
+            # static to df
+            time_df = [0] * len(labels_static)
+            parameter_df = list(labels_static)
+            value_df = list(patient['extended_static'])
+
+            # time series to df
+            observations_indices = np.nonzero(arr)
+            for x, y in zip(*observations_indices):
+                time_df.append(x)
+                parameter_df.append(labels_ts[y])
+                value_df.append(arr[x, y])
+
+            df = pd.DataFrame(data={'Time': time_df, 'Parameter': parameter_df, 'Value': value_df})
+            inputs = df_to_inputs(df=df, inputdict=inputdict, inputs=inputs)
+
+        # save inputs just in case
+        np.save('saved/P19_inputs.npy', inputs, allow_pickle=True)
+
+        loaded_inputs = np.load('saved/P19_inputs.npy', allow_pickle=True)
+
+        # make input items list
+        input_columns = list(inputdict.keys())
+        print(input_columns)
+        print(len(input_columns))
+
+        size = 49  # steps ~ from the paper
+        id_posistion = 37  # not used
+        input_length = len(all_labels)  # input variables
+        dataset = np.zeros((1, 3, input_length, size))
+        all_x_add = np.zeros((input_length, 1))
+
+        i = 0
+        for patient in data:
+            if i % 1000 == 0:
+                print(i)
+            i += 1
+            length = patient['length']
+            arr = patient['arr']
+            time = patient['time']
+
+            # static to df
+            time_df = [0] * len(labels_static)
+            parameter_df = list(labels_static)
+            value_df = list(patient['extended_static'])
+
+            # time series to df
+            observations_indices = np.nonzero(arr)
+            for x, y in zip(*observations_indices):
+                time_df.append(x)
+                parameter_df.append(labels_ts[y])
+                value_df.append(arr[x, y])
+
+            df = pd.DataFrame(data={'Time': time_df, 'Parameter': parameter_df, 'Value': value_df})
+
+            s_dataset, all_x, _ = df_to_x_m_d(df=df, inputdict=inputdict, size=size, id_posistion=id_posistion,
+                                              split=input_length, dataset_name=dataset_name)
+
+            dataset = np.concatenate((dataset, s_dataset[np.newaxis, :, :, :]))
+            all_x_add = np.concatenate((all_x_add, all_x), axis=1)
+
+        dataset = dataset[1:, :,:,:]
+        # (total datasets, kind of data(x, masking, and delta), input length, num of varience)
+        print(dataset.shape)
+        print(dataset[0].shape)
+        print(dataset[0][0][0])
+
+        print(all_x_add.shape)
+        all_x_add = all_x_add[:, 1:]
+        print(all_x_add.shape)
+
+        train_proportion = 0.8
+        train_index = int(all_x_add.shape[1] * train_proportion)
+        train_x = all_x_add[:, :train_index]
+        print(train_x.shape)
+
+        x_mean = get_mean(train_x)
+        print(x_mean)
+        print(len(x_mean))
+
+        x_std = get_std(train_x)
+        print(x_std)
+        print(len(x_std))
+
+        x_mean = np.asarray(x_mean)
+        x_std = np.asarray(x_std)
+
+        dataset = dataset_normalize(dataset=dataset, mean=x_mean, std=x_std)
+        print(dataset[0][0][0])
+        dataset = dataset[:, :, :-1, :]
+
+        nor_mean, nor_median, nor_std, nor_var = normalize_chk(dataset)
+
+        np.save('saved/P19_x_mean_aft_nor', nor_mean)
+        np.save('saved/P19_x_median_aft_nor', nor_median)
+        np.save('saved/P19_dataset.npy', dataset)
+
+        t_dataset = np.load('saved/P19_dataset.npy')
+        print(t_dataset.shape)
+
+        # labels
+        y1_outcomes = np.load('../../P19data/processed_data/arr_outcomes_6.npy', allow_pickle=True)
+        np.save('saved/' + dataset_name + '_y1_out', y1_outcomes)
+
+    elif dataset_name == 'eICU':
+        data = np.load('../../eICUdata/processed_data/PTdict_list.npy', allow_pickle=True)
+        labels_ts = np.load('../../eICUdata/processed_data/eICU_ts_vars.npy', allow_pickle=True)
+        labels_static = np.load('../../eICUdata/processed_data/eICU_static_vars.npy', allow_pickle=True)[-2:]   # only height and weight
+
+        all_labels = np.concatenate((labels_static, labels_ts))
+
+        inputdict = {label: i for i, label in enumerate(all_labels)}
+
+        # prepare empty list to put data
+        inputs = [[] for i in range(len(inputdict))]
+        i = 0
+        for patient in data:
+            if i % 1000 == 0:
+                print(i)
+            i += 1
+
+            arr = patient['arr']
+            time = patient['time']
+
+            # static to df
+            time_df = [0] * len(labels_static)
+            parameter_df = list(labels_static)
+            value_df = list(patient['extended_static'][-2:])
+
+            # time series to df
+            observations_indices = np.nonzero(arr)
+            for x, y in zip(*observations_indices):
+                time_df.append(x)
+                parameter_df.append(labels_ts[y])
+                value_df.append(arr[x, y])
+
+            df = pd.DataFrame(data={'Time': time_df, 'Parameter': parameter_df, 'Value': value_df})
+            inputs = df_to_inputs(df=df, inputdict=inputdict, inputs=inputs)
+
+        # save inputs just in case
+        np.save('saved/eICU_inputs.npy', inputs, allow_pickle=True)
+
+        loaded_inputs = np.load('saved/eICU_inputs.npy', allow_pickle=True)
+
+        # make input items list
+        input_columns = list(inputdict.keys())
+        print(input_columns)
+        print(len(input_columns))
+
+        size = 49  # steps ~ from the paper
+        id_posistion = 0  # not used
+        input_length = len(all_labels)  # input variables
+        dataset = np.zeros((1, 3, input_length, size))
+        all_x_add = np.zeros((input_length, 1))
+
+        i = 0
+        for patient in data:
+            if i % 1000 == 0:
+                print(i)
+            i += 1
+
+            arr = patient['arr']
+            time = patient['time']
+
+            # static to df
+            time_df = [0] * len(labels_static)
+            parameter_df = list(labels_static)
+            value_df = list(patient['extended_static'][-2:])
+
+            # time series to df
+            observations_indices = np.nonzero(arr)
+            for x, y in zip(*observations_indices):
+                time_df.append(x)
+                parameter_df.append(labels_ts[y])
+                value_df.append(arr[x, y])
+
+            df = pd.DataFrame(data={'Time': time_df, 'Parameter': parameter_df, 'Value': value_df})
+
+            s_dataset, all_x, _ = df_to_x_m_d(df=df, inputdict=inputdict, size=size, id_posistion=id_posistion,
+                                              split=input_length, dataset_name=dataset_name)
+
+            dataset = np.concatenate((dataset, s_dataset[np.newaxis, :, :, :]))
+            all_x_add = np.concatenate((all_x_add, all_x), axis=1)
+
+        dataset = dataset[1:, :, :, :]
+        # (total datasets, kind of data(x, masking, and delta), input length, num of varience)
+        print(dataset.shape)
+        print(dataset[0].shape)
+        print(dataset[0][0][0])
+
+        print(all_x_add.shape)
+        all_x_add = all_x_add[:, 1:]
+        print(all_x_add.shape)
+
+        train_proportion = 0.8
+        train_index = int(all_x_add.shape[1] * train_proportion)
+        train_x = all_x_add[:, :train_index]
+        print(train_x.shape)
+
+        x_mean = get_mean(train_x)
+        print(x_mean)
+        print(len(x_mean))
+
+        x_std = get_std(train_x)
+        print(x_std)
+        print(len(x_std))
+
+        x_mean = np.asarray(x_mean)
+        x_std = np.asarray(x_std)
+
+        dataset = dataset_normalize(dataset=dataset, mean=x_mean, std=x_std)
+        print(dataset[0][0][0])
+
+        nor_mean, nor_median, nor_std, nor_var = normalize_chk(dataset)
+
+        np.save('saved/eICU_x_mean_aft_nor', nor_mean)
+        np.save('saved/eICU_x_median_aft_nor', nor_median)
+        np.save('saved/eICU_dataset.npy', dataset)
+
+        t_dataset = np.load('saved/eICU_dataset.npy')
+        print(t_dataset.shape)
+
+        # labels
+        y1_outcomes = np.load('../../eICUdata/processed_data/arr_outcomes.npy', allow_pickle=True)
+        y1_outcomes = y1_outcomes[..., np.newaxis]
+        np.save('saved/' + dataset_name + '_y1_out', y1_outcomes)
 

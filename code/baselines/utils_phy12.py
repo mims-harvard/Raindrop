@@ -59,8 +59,8 @@ def get_data_split(base_path, split_path, split_type='random', reverse=False, ba
         arr_outcomes = np.load(base_path + '/processed_data/arr_outcomes_6.npy', allow_pickle=True)
         dataset_prefix = 'P19_'
     elif dataset == 'eICU':
-        Pdict_list = np.load(base_path + '/data/PTdict_list.npy', allow_pickle=True)
-        arr_outcomes = np.load(base_path + '/data/arr_outcomes.npy', allow_pickle=True)
+        Pdict_list = np.load(base_path + '/processed_data/PTdict_list.npy', allow_pickle=True)
+        arr_outcomes = np.load(base_path + '/processed_data/arr_outcomes.npy', allow_pickle=True)
         dataset_prefix = 'eICU_'
 
     #     print(len(Pdict_list), arr_outcomes.shape)
@@ -277,7 +277,7 @@ def getStats_static(P_tensor, dataset='P12'):
 
     # p12_ = np.load('../../P12data/processed_data/extended_static_params.npy')
     # p19_ = np.load('../../P19data/processed_data/labels_demogr.npy')
-    # eicu_ = np.load('../../eICUdata/data/eICU_static_vars.npy')
+    # eicu_ = np.load('../../eICUdata/processed_data/eICU_static_vars.npy')
 
     if dataset == 'P12':
         # ['Age' 'Gender=0' 'Gender=1' 'Height' 'ICUType=1' 'ICUType=2' 'ICUType=3' 'ICUType=4' 'Weight']

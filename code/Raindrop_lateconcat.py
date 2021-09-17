@@ -87,7 +87,7 @@ n_classes = 2
 MAX = 100
 
 n_runs = 1  # change this from 1 to 1, in order to save debugging time.
-n_splits = 1 # change this from 5 to 1, in order to save debugging time.
+n_splits = 1  # change this from 5 to 1, in order to save debugging time.
 subset = False  # use subset for better debugging in local PC, which only contains 1200 patients
 
 acc_arr = np.zeros((n_splits, n_runs))
@@ -263,7 +263,7 @@ for k in range(n_splits):
                     # probs = np.exp(out_val) / denoms
                     # ypred = np.argmax(out_val, axis=1)
 
-                    val_loss = criterion(torch.from_numpy(out_val), torch.from_numpy(yval.squeeze(1)))
+                    val_loss = criterion(torch.from_numpy(out_val), torch.from_numpy(yval.squeeze(1)).long())
 
                     auc_val = roc_auc_score(yval, out_val[:, 1])
                     aupr_val = average_precision_score(yval, out_val[:, 1])

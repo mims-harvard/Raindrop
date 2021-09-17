@@ -28,7 +28,7 @@ def count_parameters(model):
 
 
 def data_dataloader(dataset, outcomes, upsampling_batch, batch_size, split_type, feature_removal_level, missing_ratio,
-                    train_proportion=0.8, dev_proportion=0.1):
+                    train_proportion=0.8, dev_proportion=0.1, dataset_name='P12'):
     # 80% train, 10% validation, 10% test
     # test data is the remaining part after training and validation set (default=0.1)
 
@@ -85,12 +85,19 @@ def data_dataloader(dataset, outcomes, upsampling_batch, batch_size, split_type,
         # np.save('saved/grud_idx_male.npy', np.array(idx_male), allow_pickle=True)
         # np.save('saved/grud_idx_female.npy', np.array(idx_female), allow_pickle=True)
 
+        if dataset_name == 'P12':
+            prefix = 'grud'
+        elif dataset_name == 'P19':
+            prefix = 'P19'
+        elif dataset_name == 'eICU':    # not possible with split_type == 'age'
+            prefix = 'eICU'
+
         if split_type == 'age':
-            idx_train = np.load('saved/grud_idx_under_65.npy', allow_pickle=True)
-            idx_vt = np.load('saved/grud_idx_over_65.npy', allow_pickle=True)
+            idx_train = np.load('saved/' + prefix + '_idx_under_65.npy', allow_pickle=True)
+            idx_vt = np.load('saved/' + prefix + '_idx_over_65.npy', allow_pickle=True)
         else:   # split_type == 'gender':
-            idx_train = np.load('saved/grud_idx_male.npy', allow_pickle=True)
-            idx_vt = np.load('saved/grud_idx_female.npy', allow_pickle=True)
+            idx_train = np.load('saved/' + prefix + '_idx_male.npy', allow_pickle=True)
+            idx_vt = np.load('saved/' + prefix + '_idx_female.npy', allow_pickle=True)
 
         if upsampling_batch:
             train_data = []
@@ -125,61 +132,71 @@ def data_dataloader(dataset, outcomes, upsampling_batch, batch_size, split_type,
             patient[:, idx, :] = np.zeros(shape=(test_data.shape[1], num_missing_features, test_data.shape[3]))
             test_data[i] = patient
     elif feature_removal_level == 'set':
-        inputdict = {
-            "ALP": 0,  # o
-            "ALT": 1,  # o
-            "AST": 2,  # o
-            "Albumin": 3,  # o
-            "BUN": 4,  # o
-            "Bilirubin": 5,  # o
-            "Cholesterol": 6,  # o
-            "Creatinine": 7,  # o
-            "DiasABP": 8,  # o
-            "FiO2": 9,  # o
-            "GCS": 10,  # o
-            "Glucose": 11,  # o
-            "HCO3": 12,  # o
-            "HCT": 13,  # o
-            "HR": 14,  # o
-            "K": 15,  # o
-            "Lactate": 16,  # o
-            "MAP": 17,  # o
-            "Mg": 18,  # o
-            "Na": 19,  # o
-            "PaCO2": 20,  # o
-            "PaO2": 21,  # o
-            "Platelets": 22,  # o
-            "RespRate": 23,  # o
-            "SaO2": 24,  # o
-            "SysABP": 25,  # o
-            "Temp": 26,  # o
-            "Tropl": 27,  # o
-            "TroponinI": 27,  # temp: regarded same as Tropl
-            "TropT": 28,  # o
-            "TroponinT": 28,  # temp: regarded same as TropT
-            "Urine": 29,  # o
-            "WBC": 30,  # o
-            "Weight": 31,  # o
-            "pH": 32,  # o
-            "NIDiasABP": 33,  # unused variable
-            "NIMAP": 34,  # unused variable
-            "NISysABP": 35,  # unused variable
-            "MechVent": 36,  # unused variable
-            "RecordID": 37,  # unused variable
-            "Age": 38,  # unused variable
-            "Gender": 39,  # unused variable
-            "ICUType": 40,  # unused variable
-            "Height": 41  # unused variable
-        }
-
         num_all_features = dev_data.shape[2]
         num_missing_features = round(missing_ratio * num_all_features)
-        density_scores = np.load('saved/density_scores.npy', allow_pickle=True)
-        idx = []
-        for _, _, name in density_scores:
-            if inputdict[name] < 33:
-                idx.append(inputdict[name])
-        idx = list(set(idx))[:num_missing_features]
+
+        if dataset_name == 'P12':
+            # density_scores = np.load('saved/density_scores.npy', allow_pickle=True)
+            density_scores = np.load('saved/IG_density_scores_P12.npy', allow_pickle=True)
+
+            inputdict = {
+                "ALP": 0,  # o
+                "ALT": 1,  # o
+                "AST": 2,  # o
+                "Albumin": 3,  # o
+                "BUN": 4,  # o
+                "Bilirubin": 5,  # o
+                "Cholesterol": 6,  # o
+                "Creatinine": 7,  # o
+                "DiasABP": 8,  # o
+                "FiO2": 9,  # o
+                "GCS": 10,  # o
+                "Glucose": 11,  # o
+                "HCO3": 12,  # o
+                "HCT": 13,  # o
+                "HR": 14,  # o
+                "K": 15,  # o
+                "Lactate": 16,  # o
+                "MAP": 17,  # o
+                "Mg": 18,  # o
+                "Na": 19,  # o
+                "PaCO2": 20,  # o
+                "PaO2": 21,  # o
+                "Platelets": 22,  # o
+                "RespRate": 23,  # o
+                "SaO2": 24,  # o
+                "SysABP": 25,  # o
+                "Temp": 26,  # o
+                "Tropl": 27,  # o
+                "TroponinI": 27,  # temp: regarded same as Tropl
+                "TropT": 28,  # o
+                "TroponinT": 28,  # temp: regarded same as TropT
+                "Urine": 29,  # o
+                "WBC": 30,  # o
+                "Weight": 31,  # o
+                "pH": 32,  # o
+                "NIDiasABP": 33,  # unused variable
+                "NIMAP": 34,  # unused variable
+                "NISysABP": 35,  # unused variable
+                "MechVent": 36,  # unused variable
+                "RecordID": 37,  # unused variable
+                "Age": 38,  # unused variable
+                "Gender": 39,  # unused variable
+                "ICUType": 40,  # unused variable
+                "Height": 41  # unused variable
+            }
+            idx = []
+            for _, name in density_scores:
+                if inputdict[name] < 33:
+                    idx.append(inputdict[name])
+            idx = list(set(idx[:num_missing_features]))
+        elif dataset_name == 'P19':
+            density_scores = np.load('saved/IG_density_scores_P19.npy', allow_pickle=True)
+            idx = list(map(int, density_scores[:, 0][:num_missing_features]))
+        elif dataset_name == 'eICU':
+            density_scores = np.load('saved/IG_density_scores_eICU.npy', allow_pickle=True)
+            idx = list(map(int, density_scores[:, 0][:num_missing_features]))
+
         dev_data[:, :, idx, :] = np.zeros(shape=(dev_data.shape[0], dev_data.shape[1], len(idx), dev_data.shape[3]))
         test_data[:, :, idx, :] = np.zeros(shape=(test_data.shape[0], test_data.shape[1], len(idx), test_data.shape[3]))
 
@@ -222,7 +239,7 @@ weights = 10*33*49(16170) + 33*5(165) = 16335 gap : 2503
 
 
 def train_gru_d(num_runs, input_size, hidden_size, output_size, num_layers, dropout, learning_rate, n_epochs,
-                batch_size, upsampling_batch, split_type, feature_removal_level, missing_ratio):
+                batch_size, upsampling_batch, split_type, feature_removal_level, missing_ratio, dataset):
     model_path = 'saved/grud_model_best.pt'
 
     acc_all = []
@@ -230,16 +247,29 @@ def train_gru_d(num_runs, input_size, hidden_size, output_size, num_layers, drop
     aupr_all = []
 
     for r in range(num_runs):
-        t_dataset = np.load('saved/dataset.npy')
-        t_out = np.load('saved/y1_out.npy')
+        if dataset == 'P12':
+            t_dataset = np.load('saved/dataset.npy')
+            t_out = np.load('saved/y1_out.npy')
+        elif dataset == 'P19':
+            t_dataset = np.load('saved/P19_dataset.npy')
+            t_out = np.load('saved/P19_y1_out.npy')
+        elif dataset == 'eICU':
+            t_dataset = np.load('saved/eICU_dataset.npy')
+            t_out = np.load('saved/eICU_y1_out.npy')
+
         if r == 0:
             print(t_dataset.shape, t_out.shape)
 
         train_dataloader, dev_dataloader, test_dataloader = data_dataloader(t_dataset, t_out, upsampling_batch, batch_size,
                                                                             split_type, feature_removal_level, missing_ratio,
-                                                                            train_proportion=0.8, dev_proportion=0.1)
-
-        x_mean = torch.Tensor(np.load('saved/x_mean_aft_nor.npy'))
+                                                                            train_proportion=0.8, dev_proportion=0.1,
+                                                                            dataset_name=dataset)
+        if dataset == 'P12':
+            x_mean = torch.Tensor(np.load('saved/x_mean_aft_nor.npy'))
+        elif dataset == 'P19':
+            x_mean = torch.Tensor(np.load('saved/P19_x_mean_aft_nor.npy'))
+        elif dataset == 'eICU':
+            x_mean = torch.Tensor(np.load('saved/eICU_x_mean_aft_nor.npy'))
         print(x_mean.shape)
         # x_median = torch.Tensor(np.load('saved/x_median_aft_nor.npy'))
 
@@ -501,12 +531,23 @@ def plot_roc_and_auc_score(outputs, labels, title):
 
 
 if __name__ == '__main__':
+    dataset = 'P19'  # possible values: 'P12', 'P19', 'eICU'
+    print('Dataset used: ', dataset)
+
+    if dataset == 'P12':
+        input_size = 33  # num of variables base on the paper
+        hidden_size = 33  # same as inputsize
+    elif dataset == 'P19':
+        input_size = 40
+        hidden_size = 40
+    elif dataset == 'eICU':
+        input_size = 16
+        hidden_size = 16
+
     # missing_ratios = [0.0, 0.1, 0.2, 0.3, 0.4, 0.5]   # ratios [0, 1] of missing variables in validation and test set
     missing_ratios = [0.0]
     for missing_ratio in missing_ratios:
         num_runs = 5
-        input_size = 33   # num of variables base on the paper
-        hidden_size = 33  # same as inputsize
         output_size = 1
         num_layers = 49  # num of step or layers base on the paper / number of hidden states
         dropout = 0.0    # dropout_type : Moon, Gal, mloss
@@ -516,8 +557,7 @@ if __name__ == '__main__':
         upsampling_batch = True
         split_type = 'random'  # possible values: 'random', 'age', 'gender'
         feature_removal_level = 'set'  # possible values: 'sample', 'set'
-        # missing_ratio = 0.5    # ratio [0, 1] of missing variables in validation and test set
 
         train_gru_d(num_runs, input_size, hidden_size, output_size, num_layers, dropout, learning_rate, n_epochs,
-                    batch_size, upsampling_batch, split_type, feature_removal_level, missing_ratio)
+                    batch_size, upsampling_batch, split_type, feature_removal_level, missing_ratio, dataset)
 

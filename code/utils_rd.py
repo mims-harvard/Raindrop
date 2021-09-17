@@ -74,8 +74,8 @@ def get_data_split(base_path, split_path, split_type='random', reverse=False, ba
         arr_outcomes = np.load(base_path + '/processed_data/arr_outcomes_6.npy', allow_pickle=True)
         dataset_prefix = 'P19_'
     elif dataset == 'eICU':
-        Pdict_list = np.load(base_path + '/data/PTdict_list.npy', allow_pickle=True)
-        arr_outcomes = np.load(base_path + '/data/arr_outcomes.npy', allow_pickle=True)
+        Pdict_list = np.load(base_path + '/processed_data/PTdict_list.npy', allow_pickle=True)
+        arr_outcomes = np.load(base_path + '/processed_data/arr_outcomes.npy', allow_pickle=True)
         dataset_prefix = 'eICU_'
 
     show_statistics = False

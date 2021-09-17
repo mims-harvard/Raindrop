@@ -409,10 +409,10 @@ def get_data(args, dataset, device, q, upsampling_batch, split_type, feature_rem
         total_dataset = preprocess_P19(PT_dict, arr_outcomes, labels_ts)
 
     elif dataset == 'eICU':
-        PT_dict = np.load('../../../eICUdata/data/PTdict_list.npy', allow_pickle=True)
-        labels_ts = np.load('../../../eICUdata/data/eICU_ts_vars.npy', allow_pickle=True)
-        labels_demogr = np.load('../../../eICUdata/data/eICU_static_vars.npy', allow_pickle=True)
-        arr_outcomes = np.load('../../../eICUdata/data/arr_outcomes.npy', allow_pickle=True)
+        PT_dict = np.load('../../../eICUdata/processed_data/PTdict_list.npy', allow_pickle=True)
+        labels_ts = np.load('../../../eICUdata/processed_data/eICU_ts_vars.npy', allow_pickle=True)
+        labels_demogr = np.load('../../../eICUdata/processed_data/eICU_static_vars.npy', allow_pickle=True)
+        arr_outcomes = np.load('../../../eICUdata/processed_data/arr_outcomes.npy', allow_pickle=True)
 
         total_dataset = preprocess_eICU(PT_dict, arr_outcomes, labels_ts)
 
@@ -499,15 +499,18 @@ def get_data(args, dataset, device, q, upsampling_batch, split_type, feature_rem
             elif feature_removal_level == 'set':
                 if dataset == 'P12':
                     dict_params = train_dataset_obj_1.params_dict
-                    density_scores_names = np.load('density_scores.npy', allow_pickle=True)[:, 2]
+                    # density_scores_names = np.load('density_scores.npy', allow_pickle=True)[:, 2]
+                    density_scores_names = np.load('IG_density_scores_P12.npy', allow_pickle=True)[:, 1]
                 elif dataset == 'P19':
                     labels_ts = np.load('../../../P19data/processed_data/labels_ts.npy', allow_pickle=True)
                     dict_params = {label: i for i, label in enumerate(labels_ts[:-1])}
-                    density_scores_names = np.load('P19_density_scores.npy', allow_pickle=True)[:, 2]
+                    # density_scores_names = np.load('P19_density_scores.npy', allow_pickle=True)[:, 2]
+                    density_scores_names = np.load('IG_density_scores_P19.npy', allow_pickle=True)[:, 1]
                 elif dataset == 'eICU':
-                    labels_ts = np.load('../../../eICUdata/data/eICU_ts_vars.npy', allow_pickle=True)
+                    labels_ts = np.load('../../../eICUdata/processed_data/eICU_ts_vars.npy', allow_pickle=True)
                     dict_params = {label: i for i, label in enumerate(labels_ts)}
-                    density_scores_names = np.load('eICU_density_scores.npy', allow_pickle=True)[:, 2]
+                    # density_scores_names = np.load('eICU_density_scores.npy', allow_pickle=True)[:, 2]
+                    density_scores_names = np.load('IG_density_scores_eICU.npy', allow_pickle=True)[:, 1]
 
                 idx = [dict_params[name] for name in density_scores_names[:num_missing_features]]
                 for i, tpl in enumerate(val_data):
