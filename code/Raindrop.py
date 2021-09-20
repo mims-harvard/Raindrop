@@ -55,7 +55,6 @@ def generate_global_structure(data, K=10):
     global_structure = masked_softmax(global_structure)  # softmax while mask out zero values
     return global_structure
 
-
 def diffuse(unit, N=10):
     n_time = unit.shape[-1]
     keep = n_time//N  -1
@@ -101,16 +100,17 @@ import argparse
 parser = argparse.ArgumentParser()
 parser.add_argument('--dataset', type=str, default='P19', choices=['P12', 'P19', 'eICU', 'PAMAP2']) #
 parser.add_argument('--withmissingratio', default=False, help='if True, missing ratio ranges from 0 to 0.5; if False, missing ratio =0') #
-parser.add_argument('--splittype', type=str, default='random', choices=['random', 'age', 'gender'], help='only use for P12 and P19')
-parser.add_argument('--reverse', default=False, help='if True,use female, older for tarining; if False, use female or younger for training') #
-parser.add_argument('--feature_removal_level', type=str, default='no_removal', choices=['no_removal', 'set', 'sample'],
+parser.add_argument('--splittype', type=str, default='gender', choices=['random', 'age', 'gender'], help='only use for P12 and P19')
+parser.add_argument('--reverse', default=True, help='if True,use female, older for tarining; if False, use female or younger for training') #
+parser.add_argument('--feature_removal_level', type=str, default='set', choices=['no_removal', 'set', 'sample'],
                     help='use this only when splittype==random; otherwise, set as no_removal') #
 # args = parser.parse_args() #args=[]
 args, unknown = parser.parse_known_args()
 
 
+
 # training modes
-arch = 'standard'
+arch = 'raindrop'
 model_path = '../models/'
 
 dataset = args.dataset     # possible values: 'P12', 'P19', 'eICU'
@@ -151,17 +151,21 @@ split = args.splittype  # 'gender'  # possible values: 'random', 'age', 'gender'
 reverse = args.reverse  # False  True
 feature_removal_level = args.feature_removal_level  # 'set'
 
+print('args.dataset, args.splittype, args.reverse, args.withmissingratio, args.feature_removal_level',
+      args.dataset, args.splittype, args.reverse, args.withmissingratio, args.feature_removal_level)
+
 """While missing_ratio >0, feature_removal_level is automatically used"""
-# if args.withmissingratio==True:
-#     missing_ratios = [0.1, 0.2, 0.3, 0.4, 0.5]  # f True, with missing ratio
-# else:
-#     missing_ratios = [0]
+if args.withmissingratio==True:
+    missing_ratios = [ 0.1, 0.2, 0.3, 0.4, 0.5]  # f True, with missing ratio, 0.1, 0.2, 0.3,
+else:
+    missing_ratios = [0]
+print('missing ratio list', missing_ratios)
 
-"""for debugging"""
-missing_ratios = [0.5]
-feature_removal_level = 'set'
+# """for debugging"""
+# missing_ratios = [0.5]
+# feature_removal_level = 'set'
 
-sensor_wise_mask  =False  # bad, don't use it, slow and worse. set as False
+sensor_wise_mask  =False  #  set as False. BWe can may use it for PAMAP2 dataset. But for other datasets, slow and worse
 
 for missing_ratio in missing_ratios:
     # training/model params
@@ -173,12 +177,12 @@ for missing_ratio in missing_ratios:
         d_inp = 36
     elif dataset == 'P19':
         d_static = 6
-        d_inp = 34  #*2
+        d_inp = 34#*2
     elif dataset == 'eICU':
         d_static = 399
         d_inp = 14
 
-    d_ob= 4  # the dim of each node features
+    d_ob= 4 # the dim of each node features
     d_model = d_inp *d_ob #  64  # 256
     nhid = 2 * d_model
 
@@ -192,7 +196,7 @@ for missing_ratio in missing_ratios:
 
     # nhead = 1  # when using HGT, nhead should be times of max_len (i.e., feature dimension), so we set it as 5
 
-    dropout = 0.3 #0.5 (81.2) # 0.3 (81.5)
+    dropout = 0.2 #0.5 (81.2) # 0.3 (81.5)
 
     if dataset == 'P12':
         max_len = 215
@@ -218,6 +222,7 @@ for missing_ratio in missing_ratios:
     for k in range(n_splits):
         # k = 1
         split_idx = k+1
+        # split_idx = k + 4
         print('Split id: %d' % split_idx)
         if dataset == 'P12':
             if subset == True:
@@ -263,9 +268,9 @@ for missing_ratio in missing_ratios:
         print(Ptrain_tensor.shape, Ptrain_static_tensor.shape, Ptrain_time_tensor.shape, ytrain_tensor.shape)
         # the shapes are: torch.Size([960, 215, 72]) torch.Size([960, 9]) torch.Size([960, 215, 1]) torch.Size([960])
 
-        """calculate/load global structure """
-        print('try to load global structure, if do not exist, calculate it and save.')
-        # try:
+        # """calculate/load global structure """
+        # print('try to load global structure, if do not exist, calculate it and save.')
+        # # try:
         #     global_structure = np.load(base_path + '/splits/global_strucutre' + str(split_idx) +'_normalize.npy')
         #     global_structure = torch.from_numpy(global_structure)
         #     print('load global structure')
@@ -298,14 +303,20 @@ for missing_ratio in missing_ratios:
                     # patient[:, idx + num_all_features] = torch.zeros(Ptest_tensor.shape[1], num_missing_features)  # masks
                     Ptest_tensor[i] = patient
             elif feature_removal_level == 'set':
-                # if dataset == 'P12':
-                #     dataset_prefix = ''
-                # elif dataset == 'P19':
-                #     dataset_prefix = 'P19_'
-                # elif dataset == 'eICU':
-                #     dataset_prefix = 'eICU_'
-                # density_score_indices = np.load('baselines/saved/' + dataset_prefix + 'density_scores.npy', allow_pickle=True)[:, 0]
-                density_score_indices = np.load('baselines/saved/IG_density_scores_' + dataset + '.npy', allow_pickle=True)[:, 0]
+                if dataset == 'P12':
+                    dataset_prefix = ''
+                    density_score_indices = np.array(
+                        [16, 35, 0, 10, 3, 5, 23, 24, 34, 11, 29, 1, 14, 7, 30, 12, 4, 13, 28, 19, 9, 17, 22,
+                         32, 2, 18, 15, 31, 20, 33, 21, 25, 27, 8, 26,
+                         6])  # sensor ranks for P12, indeed more important.
+                elif dataset == 'P19':
+                    dataset_prefix = 'P19_'
+                    density_score_indices = np.array(
+                        [3, 0, 1, 6, 4, 2, 5, 28, 33, 15, 25, 21, 29, 9, 18, 10, 23, 11, 12, 31, 17, 24,
+                         26, 8, 19, 27, 20, 7, 14, 30, 16, 32, 13, 22])
+                elif dataset == 'eICU':
+                    dataset_prefix = 'eICU_'
+                    density_score_indices = np.array([13, 12, 0, 2, 1, 10, 11, 4, 3, 9, 8, 5, 6, 7])
                 idx = density_score_indices[:num_missing_features].astype(int)
                 Pval_tensor[:, :, idx] = torch.zeros(Pval_tensor.shape[0], Pval_tensor.shape[1], num_missing_features)   # values
                 # Pval_tensor[:, :, idx + num_all_features] = torch.zeros(Pval_tensor.shape[0], Pval_tensor.shape[1], num_missing_features)  # masks
@@ -450,10 +461,6 @@ for missing_ratio in missing_ratios:
 
                         val_loss = criterion(torch.from_numpy(out_val), torch.from_numpy(yval.squeeze(1)).long())
 
-                        """here use softmax for the calculation of metrics"""
-                        out_val = softmax(out_val, axis=1)
-                        # torch.squeeze(nn.functional.softmax(out_val, dim=1))
-
                         auc_val = roc_auc_score(yval, out_val[:, 1])
                         aupr_val = average_precision_score(yval, out_val[:, 1])
                         print("Validataion: Epoch %d,  val_loss:%.4f, aupr_val: %.2f, auc_val: %.2f" % (epoch,
@@ -512,33 +519,33 @@ for missing_ratio in missing_ratios:
             auprc_arr[k, m] = aupr * 100
             auroc_arr[k, m] = auc * 100
 
-            # pick best performer for each split based on max AUPRC
-        idx_max = np.argmax(auprc_arr, axis=1)
-        acc_vec = [acc_arr[k, idx_max[k]] for k in range(n_splits)]
-        auprc_vec = [auprc_arr[k, idx_max[k]] for k in range(n_splits)]
-        auroc_vec = [auroc_arr[k, idx_max[k]] for k in range(n_splits)]
+    # pick best performer for each split based on max AUPRC
+    idx_max = np.argmax(auprc_arr, axis=1)
+    acc_vec = [acc_arr[k, idx_max[k]] for k in range(n_splits)]
+    auprc_vec = [auprc_arr[k, idx_max[k]] for k in range(n_splits)]
+    auroc_vec = [auroc_arr[k, idx_max[k]] for k in range(n_splits)]
 
-        print("missing ratio:{}, split type:{}, reverse:{}, using baseline:{}".format(missing_ratio, split, reverse,
-                                                                                      baseline))
+    print("missing ratio:{}, split type:{}, reverse:{}, using baseline:{}".format(missing_ratio, split, reverse,
+                                                                                  baseline))
 
-        print('args.dataset, args.splittype, args.reverse, args.withmissingratio, args.feature_removal_level',
-              args.dataset, args.splittype, args.reverse, args.withmissingratio, args.feature_removal_level)
+    print('args.dataset, args.splittype, args.reverse, args.withmissingratio, args.feature_removal_level',
+          args.dataset, args.splittype, args.reverse, args.withmissingratio, args.feature_removal_level)
 
-        # display mean and standard deviation
-        mean_acc, std_acc = np.mean(acc_vec), np.std(acc_vec)
-        mean_auprc, std_auprc = np.mean(auprc_vec), np.std(auprc_vec)
-        mean_auroc, std_auroc = np.mean(auroc_vec), np.std(auroc_vec)
-        print('------------------------------------------')
-        print('Accuracy = %.1f +/- %.1f' % (mean_acc, std_acc))
-        print('AUPRC    = %.1f +/- %.1f' % (mean_auprc, std_auprc))
-        print('AUROC    = %.1f +/- %.1f' % (mean_auroc, std_auroc))
-        print('\nAbove results for missing ratio: %d\n\n\n' % missing_ratio)
+    # display mean and standard deviation
+    mean_acc, std_acc = np.mean(acc_vec), np.std(acc_vec)
+    mean_auprc, std_auprc = np.mean(auprc_vec), np.std(auprc_vec)
+    mean_auroc, std_auroc = np.mean(auroc_vec), np.std(auroc_vec)
+    print('------------------------------------------')
+    print('Accuracy = %.1f +/- %.1f' % (mean_acc, std_acc))
+    print('AUPRC    = %.1f +/- %.1f' % (mean_auprc, std_auprc))
+    print('AUROC    = %.1f +/- %.1f' % (mean_auroc, std_auroc))
+    print('\nAbove results for missing ratio: %d\n\n\n' % missing_ratio)
 
-        # Mark the run as finished
-        if wandb:
-            wandb.finish()
+    # Mark the run as finished
+    if wandb:
+        wandb.finish()
 
-        # # save in numpy file
-        # np.save('./results/' + arch + '_phy12_setfunction.npy', [acc_vec, auprc_vec, auroc_vec])
+    # # save in numpy file
+    # np.save('./results/' + arch + '_phy12_setfunction.npy', [acc_vec, auprc_vec, auroc_vec])
 
 

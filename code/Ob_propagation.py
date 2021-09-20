@@ -75,7 +75,6 @@ class Observation_progation(MessagePassing):
         self.index = None
 
 
-
         self.reset_parameters()
 
     def reset_parameters(self):
@@ -133,7 +132,7 @@ class Observation_progation(MessagePassing):
         else:
             out = out.mean(dim=1)
 
-        # if self.root_weight:  # this is True
+        # if self.root_weight:  # this is True, this makes the performance worse
         #     x_r = self.lin_skip(x[1])
         #     if self.lin_beta is not None: # False
         #         beta = self.lin_beta(torch.cat([out, x_r, out - x_r], dim=-1))
@@ -224,19 +223,15 @@ class Observation_progation(MessagePassing):
                 all_edge_weights = torch.mean(gamma, dim=1)  # [360]
                 K = int(gamma.shape[0] * 0.5)
                 index_top_edges = torch.argsort(all_edge_weights, descending=True)[:K]  # the index of top K edge weights
-
                 gamma = gamma[index_top_edges]  # shape [180, 215*4]
                 self.edge_index = self.edge_index[:, index_top_edges]  # shape[2, 180]
                 index = self.edge_index[0]  # update the index which is used for softmax normalization
-                self.index = index
                 x_i = x_i[index_top_edges]  # update the source node
 
             else:
                 gamma = edge_weights.unsqueeze(-1) #* alpha
 
-
-
-
+        self.index = index
         if use_beta==True:
             self._alpha = torch.mean(gamma, dim=-1)
         else:

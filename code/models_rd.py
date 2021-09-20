@@ -1788,7 +1788,7 @@ class Raindrop_v2(nn.Module):
             n_step = src.shape[0]  # 215 time steps for P12, denotes T.
             output = torch.zeros([n_step, batch_size, self.d_inp*self.d_ob]).cuda() # shape[215, 128, 36]
 
-            use_beta = True
+            use_beta = False
             if use_beta==True:
                 alpha_all = torch.zeros([int(edge_index.shape[1]/2), batch_size]).cuda()
             else:
@@ -1813,12 +1813,12 @@ class Raindrop_v2(nn.Module):
                                  use_beta=use_beta,  edge_attr=None, return_attention_weights=True) #edge_weights
 
                 """update edge_index and edge_weights"""
-                edge_weights_layer2 = attentionweights[1].squeeze(-1) # the edge weights in previous layer is used as the intial edge weights for next ob_propagation layer
                 edge_index_layer2 = attentionweights[0] # edge index is not changed in self.ob_propagation. We can find a way  to update it.
+                edge_weights_layer2 = attentionweights[1].squeeze(-1) # the edge weights in previous layer is used as the intial edge weights for next ob_propagation layer
 
                 """comment for fast debugging"""
-                # stepdata, attentionweights = self.ob_propagation_layer2(stepdata, p_t=p_t, edge_index=edge_index_layer2, edge_weights=edge_weights_layer2,
-                #                  use_beta=False,  edge_attr=None, return_attention_weights=True)
+                stepdata, attentionweights = self.ob_propagation_layer2(stepdata, p_t=p_t, edge_index=edge_index_layer2, edge_weights=edge_weights_layer2,
+                                 use_beta=False,  edge_attr=None, return_attention_weights=True)
 
                 # stepdata.shape [36, 215*self.d_ob],
                 # attentionweights[0]: edge index, shape:[2, 360], attentionweights[1]: edge weights [360, 1]
