@@ -6,7 +6,7 @@ from sklearn.metrics import classification_report
 from sklearn.preprocessing import scale
 
 
-dataset = 'eICU'     # possible values: 'P12', 'P19', 'eICU'
+dataset = 'PAMAP2'     # possible values: 'P12', 'P19', 'eICU', 'PAMAP2'
 print('Dataset used: ', dataset)
 
 if dataset == 'P12':
@@ -21,20 +21,27 @@ elif dataset == 'eICU':
     labels_path = '../../eICUdata/processed_data/arr_outcomes.npy'
     labels_names_path = '../../eICUdata/processed_data/eICU_ts_vars.npy'
     features_path = '../../eICUdata/processed_data/PTdict_list.npy'
+elif dataset == 'PAMAP2':
+    labels_path = '../../PAMAP2data/processed_data/arr_outcomes.npy'
+    labels_names_path = ''   # not applicable
+    features_path = '../../PAMAP2data/processed_data/PTdict_list.npy'
 
 labels = np.load(labels_path, allow_pickle=True)
-if dataset == 'P12' or dataset == 'P19':
+if dataset == 'P12' or dataset == 'P19' or dataset == 'PAMAP2':
     labels_np = labels[:, -1].reshape([-1, 1])  # shape  (11988, 1)
 elif dataset == 'eICU':
     labels_np = labels[..., np.newaxis]
 
 features = np.load(features_path, allow_pickle=True)
 
-T, F = features[0]['arr'].shape
-feature_np = np.zeros((len(features), T, F))
-for i in range(len(features)):
-    feature_np[i] = features[i]['arr']
-print(feature_np.shape, labels_np.shape)
+if dataset == 'P12' or dataset == 'P19' or dataset == 'eICU':
+    T, F = features[0]['arr'].shape
+    feature_np = np.zeros((len(features), T, F))
+    for i in range(len(features)):
+        feature_np[i] = features[i]['arr']
+    print(feature_np.shape, labels_np.shape)
+elif dataset == 'PAMAP2':
+    feature_np = features
 
 n_sensors = feature_np.shape[-1]
 print('n-sensors: {}'.format(n_sensors))
@@ -74,7 +81,12 @@ for f in range(n_sensors):
 
     rf_result = rf.predict(feature_test)
 
-    auc_score = roc_auc_score(label_test, rf_result)
+    if dataset == 'P12' or dataset == 'P19' or dataset == 'eICU':
+        auc_score = roc_auc_score(label_test, rf_result)
+    elif dataset == 'PAMAP2':
+        # actually accuracy of the predictions, since it's multiclass and we don't have probabilities for AUC
+        auc_score = rf_acc
+
     print('Feature:', feature_ji, '| ACC: %.4f' % rf_acc, '| AUC: %.4f' % auc_score)
     AUC_list.append(auc_score)
 
@@ -82,7 +94,10 @@ sorted_sensor = np.argsort(np.array(AUC_list))  # sensor importance ascendingly 
 sensor_descending = sorted_sensor[::-1]
 print(sensor_descending)
 
-labels_names = np.load(labels_names_path, allow_pickle=True)
+if dataset == 'P12' or dataset == 'P19' or dataset == 'eICU':
+    labels_names = np.load(labels_names_path, allow_pickle=True)
+elif dataset == 'PAMAP2':
+    labels_names = ['sensor_%s' % str(i) for i in range(17)]
 
 indices_with_names = np.array([[ind, labels_names[ind]] for ind in sensor_descending])
 

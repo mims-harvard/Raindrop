@@ -128,7 +128,8 @@ class TransformerModel(nn.Module):
 
         src = src + pe
 
-        emb = self.emb(static)
+        if static is not None:
+            emb = self.emb(static)  # emb.shape = [128, 64]. Linear layer: 9--> 64
 
         # append context on front
         x = torch.cat([emb.unsqueeze(0), src], dim=0)
@@ -209,7 +210,8 @@ class TransformerModel2(nn.Module):
         src = torch.cat([pe, src], axis=2)  # shape: [215, 128, 64]
         src = self.dropout(src)
 
-        emb = self.emb(static)  # emb.shape = [128, 64]. Linear layer: 9--> 64
+        if static is not None:
+            emb = self.emb(static)  # emb.shape = [128, 64]. Linear layer: 9--> 64
 
         # append context on front
         """215-D for time series and 1-D for static info"""
