@@ -13,7 +13,7 @@ if wandb:
     # run = wandb.init(project='WBtest', config={'wandb_nb':'wandb_three_in_one_hm'})
     run = wandb.init(project='Raindrop', entity='xiang_zhang', config={'wandb_nb':'wandb_three_in_one_hm'})
 from sklearn.metrics import roc_auc_score, classification_report, confusion_matrix
-from models import TransformerModel, TransformerModel2, Simple_classifier
+from models import  TransformerModel2, Simple_classifier
 from utils_baselines import *
 from scipy.sparse import random
 
@@ -77,23 +77,23 @@ if __name__ == '__main__':
     """100 Hz"""
     """Dataset: file:///media/xiangzhang/Xiang/backup/xiangzhang/Downloads/Data/PAMAP2_Dataset/readme.pdf"""
 
-    data = sc.loadmat(base_path+"processed_data/AR_8p_8c.mat")
-    dataset = data['AR_8p_8c']  # (1200,000, 52)
-    # dataset = dataset[:20000]
-
-    feature_all = dataset[:, :17]  # only use one IMU.
-
-    # feature_all=preprocessing.scale(feature_all)  # Normalization
-
-    label = dataset[:, 51:52]
-    dataset_new = np.hstack((feature_all, label))
-
-    n_classes = 8  # 0~7 classes
-    no_feature = 17  # the number of the features
-    segment_length = 600  # selected time window; 16=160*0.1
-
-    data_seg = extract(dataset_new, n_classes=n_classes, n_fea=no_feature, time_window=segment_length, moving=(segment_length/2))  # 50% overlapping
-    print('After segmentation, the shape of the data:', data_seg.shape)
+    # data = sc.loadmat(base_path+"processed_data/AR_8p_8c.mat")
+    # dataset = data['AR_8p_8c']  # (1200,000, 52)
+    # # dataset = dataset[:20000]
+    #
+    # feature_all = dataset[:, :17]  # only use one IMU.
+    #
+    # # feature_all=preprocessing.scale(feature_all)  # Normalization
+    #
+    # label = dataset[:, 51:52]
+    # dataset_new = np.hstack((feature_all, label))
+    #
+    # n_classes = 8  # 0~7 classes
+    # no_feature = 17  # the number of the features
+    # segment_length = 600  # selected time window; 16=160*0.1
+    #
+    # data_seg = extract(dataset_new, n_classes=n_classes, n_fea=no_feature, time_window=segment_length, moving=(segment_length/2))  # 50% overlapping
+    # print('After segmentation, the shape of the data:', data_seg.shape)
 
 
     # Pdict_list = data_seg[:, :segment_length * no_feature]  #.reshape([-1, segment_length, no_feature])  # (4000, 600, 17)
@@ -120,7 +120,7 @@ if __name__ == '__main__':
     Pdict_list = np.load('../../PAMAP2data/processed_data/PTdict_list.npy', allow_pickle=True)
     arr_outcome = np.load('../../PAMAP2data/processed_data/arr_outcomes.npy', allow_pickle=True)
 
-    idx_train, idx_val, idx_test = split_id(data_seg.shape[0])
+    idx_train, idx_val, idx_test = split_id(5333)   #data_seg.shape[0])
     # np.save('../../PAMAP2data/splits/PAMAP2_split_5.npy', (idx_train, idx_val, idx_test))
     # idx_train, idx_val, idx_test = np.load('../../PAMAP2data/splits/PAMAP2_split_1.npy', allow_pickle=True)
 
@@ -138,12 +138,12 @@ if __name__ == '__main__':
     static_info = None  # if dataset is PAMAP2, set this as None
 
     feature_removal_level = 'set'   # possible values: 'sample', 'set'
-    missing_ratios = [0.1, 0.2, 0.3, 0.4, 0.5]
+    # missing_ratios = [0.1, 0.2, 0.3, 0.4, 0.5]
 
-    # missing_ratios = [0.5]
+    missing_ratios = [0.1]
     for missing_ratio in missing_ratios:
         # training/model params
-        num_epochs = 60
+        num_epochs = 20
         learning_rate = 0.001
 
         d_static = 9
@@ -171,7 +171,7 @@ if __name__ == '__main__':
         # MAX = d_model
         MAX = 100
 
-        n_runs = 1  # change this from 1 to 1, in order to save debugging time.
+        n_runs = 5  # change this from 1 to 1, in order to save debugging time.
         n_splits = 1  # change this from 5 to 1, in order to save debugging time.
         subset = False  # use subset for better debugging in local PC, which only contains 1200 patients
 
@@ -198,8 +198,8 @@ if __name__ == '__main__':
             #                                                           baseline=baseline)
 
 
-            y = data_seg[:, -1:]  # (4000, 1)
-            # y = arr_outcome
+            # y = data_seg[:, -1:]  # (4000, 1)
+            y = arr_outcome
 
             Ptrain = Pdict_list[idx_train]
             Pval = Pdict_list[idx_val]
@@ -392,6 +392,9 @@ if __name__ == '__main__':
                             out_val = evaluate_standard(model, Pval_tensor, Pval_time_tensor, Pval_static_tensor,
                                                         n_classes=n_classes, static=static_info)
                             # out_val = torch.squeeze(torch.sigmoid(out_val))
+                            # denoms = np.sum(np.exp(out_test), axis=1).reshape((-1, 1))
+                            # probs = np.exp(out_test) / denoms
+
                             out_val = out_val.detach().cpu().numpy()
 
 
