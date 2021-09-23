@@ -1699,6 +1699,12 @@ class Raindrop_v2(nn.Module):
             d_final = self.d_inp*(self.d_ob+16) + d_inp # d_inp for static attributes
         else:
             d_final = d_model +16 + d_inp # using transformer in step 3, nhid = 36*4
+
+        # if static == False:
+        #     d_final = d_enc + d_pe  # + d_inp  # if static is None
+        # else:
+        #     d_final = d_enc + d_pe + d_inp
+
         self.mlp_static = nn.Sequential(
             nn.Linear(d_final, d_final),
             nn.ReLU(),

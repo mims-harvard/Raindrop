@@ -77,6 +77,10 @@ def get_data_split(base_path, split_path, split_type='random', reverse=False, ba
         Pdict_list = np.load(base_path + '/processed_data/PTdict_list.npy', allow_pickle=True)
         arr_outcomes = np.load(base_path + '/processed_data/arr_outcomes.npy', allow_pickle=True)
         dataset_prefix = 'eICU_'
+    elif dataset == 'PAMAP2':
+        Pdict_list = np.load(base_path + '/processed_data/PTdict_list.npy', allow_pickle=True)
+        arr_outcomes = np.load(base_path + '/processed_data/arr_outcomes.npy', allow_pickle=True)
+        dataset_prefix = ''  # not applicable
 
     show_statistics = False
     if show_statistics:
@@ -187,7 +191,7 @@ def get_data_split(base_path, split_path, split_type='random', reverse=False, ba
     Ptest = Pdict_list[idx_test]
 
     # extract mortality labels
-    if dataset == 'P12' or dataset == 'P19':
+    if dataset == 'P12' or dataset == 'P19' or dataset == 'PAMAP2':
         y = arr_outcomes[:, -1].reshape((-1, 1))
     elif dataset == 'eICU':
         y = arr_outcomes[..., np.newaxis]
@@ -378,7 +382,6 @@ def tensorize_normalize(P, y, mf, stdf, ms, ss):
     P_tensor = mask_normalize(P_tensor, mf, stdf)
     P_tensor = torch.Tensor(P_tensor)
 
-
     P_time = torch.Tensor(P_time) / 60.0  # convert mins to hours
     P_static_tensor = mask_normalize_static(P_static_tensor, ms, ss)
     P_static_tensor = torch.Tensor(P_static_tensor)
@@ -386,6 +389,24 @@ def tensorize_normalize(P, y, mf, stdf, ms, ss):
     y_tensor = y  # y is the mortality label
     y_tensor = torch.Tensor(y_tensor[:, 0]).type(torch.LongTensor)  # change type to LongTensor, shape: [960]
     return P_tensor, P_static_tensor, P_time, y_tensor
+
+
+def tensorize_normalize_other(P, y, mf, stdf):
+    T, F = P[0].shape
+
+    P_time = np.zeros((len(P), T, 1))
+    for i in range(len(P)):
+        tim = torch.linspace(0, T, T).reshape(-1, 1)
+        P_time[i] = tim #['time']
+    P_tensor = mask_normalize(P, mf, stdf)
+    P_tensor = torch.Tensor(P_tensor)
+
+    P_time = torch.Tensor(P_time) / 60.0  # convert mins to hours
+
+    y_tensor = y  # y is the mortality label
+    y_tensor = torch.Tensor(y_tensor[:, 0]).type(torch.LongTensor)  # change type to LongTensor, shape: [960]
+    return P_tensor, None, P_time, y_tensor
+
 
 def masked_softmax(A, epsilon=0.000000001):
     # matrix A is the one you want to do mask softmax at dim=1
@@ -404,14 +425,50 @@ def random_sample(idx_0, idx_1, B, replace=False):
     return idx
 
 
-def evaluate(model, P_tensor, P_time_tensor, P_static_tensor, batch_size=100, n_classes=2):
+# def evaluate(model, P_tensor, P_time_tensor, P_static_tensor, batch_size=100, n_classes=2):
+#     model.eval()
+#     P_tensor = P_tensor.cuda()
+#     P_time_tensor = P_time_tensor.cuda()
+#     P_static_tensor = P_static_tensor.cuda()
+#
+#     T, N, Ff = P_tensor.shape
+#     N, Fs = P_static_tensor.shape
+#     n_batches, rem = N // batch_size, N % batch_size
+#
+#     out = torch.zeros(N, n_classes)
+#     start = 0
+#     for i in range(n_batches):
+#         P = P_tensor[:, start:start + batch_size, :]
+#         Ptime = P_time_tensor[:, start:start + batch_size]
+#         Pstatic = P_static_tensor[start:start + batch_size]
+#         lengths = torch.sum(Ptime > 0, dim=0)
+#         middleoutput, _, _ = model.forward(P, Pstatic, Ptime, lengths)
+#         out[start:start + batch_size] = middleoutput.detach().cpu()
+#         start += batch_size
+#     if rem > 0:
+#         P = P_tensor[:, start:start + rem, :]
+#         Ptime = P_time_tensor[:, start:start + rem]
+#         Pstatic = P_static_tensor[start:start + rem]
+#         lengths = torch.sum(Ptime > 0, dim=0)
+#         whatever, _,  _ = model.forward(P, Pstatic, Ptime, lengths)
+#         out[start:start + rem] = whatever.detach().cpu()
+#     return out
+
+
+def evaluate(model, P_tensor, P_time_tensor, P_static_tensor, batch_size=100, n_classes=2, static=1):
     model.eval()
     P_tensor = P_tensor.cuda()
     P_time_tensor = P_time_tensor.cuda()
-    P_static_tensor = P_static_tensor.cuda()
+    if static is None:
+        Pstatic = None
+    else:
+        P_static_tensor = P_static_tensor.cuda()
+        N, Fs = P_static_tensor.shape
+
+    # P_static_tensor = P_static_tensor.cuda()
 
     T, N, Ff = P_tensor.shape
-    N, Fs = P_static_tensor.shape
+
     n_batches, rem = N // batch_size, N % batch_size
 
     out = torch.zeros(N, n_classes)
@@ -419,7 +476,8 @@ def evaluate(model, P_tensor, P_time_tensor, P_static_tensor, batch_size=100, n_
     for i in range(n_batches):
         P = P_tensor[:, start:start + batch_size, :]
         Ptime = P_time_tensor[:, start:start + batch_size]
-        Pstatic = P_static_tensor[start:start + batch_size]
+        if P_static_tensor is not None:
+            Pstatic = P_static_tensor[start:start + batch_size]
         lengths = torch.sum(Ptime > 0, dim=0)
         middleoutput, _, _ = model.forward(P, Pstatic, Ptime, lengths)
         out[start:start + batch_size] = middleoutput.detach().cpu()
@@ -427,23 +485,28 @@ def evaluate(model, P_tensor, P_time_tensor, P_static_tensor, batch_size=100, n_
     if rem > 0:
         P = P_tensor[:, start:start + rem, :]
         Ptime = P_time_tensor[:, start:start + rem]
-        Pstatic = P_static_tensor[start:start + rem]
+        if P_static_tensor is not None:
+            Pstatic = P_static_tensor[start:start + batch_size]
+        # Pstatic = P_static_tensor[start:start + rem]
         lengths = torch.sum(Ptime > 0, dim=0)
-        whatever, _,  _ = model.forward(P, Pstatic, Ptime, lengths)
+        whatever, _, _ = model.forward(P, Pstatic, Ptime, lengths)
         out[start:start + rem] = whatever.detach().cpu()
     return out
 
-"""Xiang:"""
-def evaluate_standard(model, P_tensor, P_time_tensor, P_static_tensor, batch_size=100, n_classes=2):
+
+def evaluate_standard(model, P_tensor, P_time_tensor, P_static_tensor, batch_size=100, n_classes=2, static=1):
     # model.eval()
     P_tensor = P_tensor.cuda()
     P_time_tensor = P_time_tensor.cuda()
-    P_static_tensor = P_static_tensor.cuda()
+    if static is None:
+        P_static_tensor = None
+    else:
+        P_static_tensor = P_static_tensor.cuda()
 
     lengths = torch.sum(P_time_tensor > 0, dim=0)
     out, _, _ = model.forward(P_tensor, P_static_tensor, P_time_tensor, lengths)
-
     return out
+
 
 # Adam using warmup
 class NoamOpt:

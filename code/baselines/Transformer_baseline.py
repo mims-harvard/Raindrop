@@ -456,8 +456,8 @@ for missing_ratio in missing_ratios:
                     precision = precision_score(ytest, ypred, average='macro', labels=np.unique(ypred))
                     recall = recall_score(ytest, ypred, average='macro', labels=np.unique(ypred))
                     F1 = f1_score(ytest, ypred, average='macro', labels=np.unique(ypred))
+                    print('Testing: Precision = %.2f | Recall = %.2f | F1 = %.2f' % (precision * 100, recall * 100, F1 * 100))
 
-                print('Testing: Precision = %.2f | Recall = %.2f | F1 = %.2f' % (precision * 100, recall * 100, F1 * 100))
                 print('Testing: AUROC = %.2f | AUPRC = %.2f | Accuracy = %.2f' % (auc * 100, aupr * 100, acc * 100))
                 print('classification report', classification_report(ytest, ypred))
                 print(confusion_matrix(ytest, ypred, labels=list(range(n_classes))))
