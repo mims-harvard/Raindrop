@@ -4,9 +4,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-# import os
-# os.add_dll_directory('c:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v10.1/bin')
-# os.add_dll_directory(os.path.dirname(__file__))
+import os
+os.add_dll_directory('c:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v10.1/bin')
+os.add_dll_directory(os.path.dirname(__file__))
 
 
 from torch.nn.parameter import Parameter
@@ -1662,7 +1662,10 @@ class Raindrop_v2(nn.Module):
 
         self.d_inp = d_inp
         self.d_model = d_model
-        self.emb = nn.Linear(d_static, d_inp)
+
+        self.static = static
+        if self.static:
+            self.emb = nn.Linear(d_static, d_inp)
         self.d_ob = int(d_model/d_inp)  # dimension of observation embedding
 
         # self.encoder = nn.Linear(d_inp, d_enc) # in Transformer
@@ -1733,7 +1736,8 @@ class Raindrop_v2(nn.Module):
     def init_weights(self):
         initrange = 1e-10
         self.encoder.weight.data.uniform_(-initrange, initrange)
-        self.emb.weight.data.uniform_(-initrange, initrange)
+        if self.static:
+            self.emb.weight.data.uniform_(-initrange, initrange)
         glorot(self.R_u)
         # self.R_u.uniform_(-initrange, initrange)  # initialize as 0-0.5
 

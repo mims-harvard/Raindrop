@@ -34,12 +34,23 @@ from PAMAP2_dataset import one_hot
 
 torch.manual_seed(1)
 
+import argparse
+parser = argparse.ArgumentParser()
+parser.add_argument('--dataset', type=str, default='PAMAP2', choices=['P12', 'P19', 'eICU', 'PAMAP2'])
+parser.add_argument('--withmissingratio', default=False, help='if True, missing ratio ranges from 0 to 0.5; if False, missing ratio =0')
+parser.add_argument('--splittype', type=str, default='random', choices=['random', 'age', 'gender'], help='only use for P12 and P19')
+parser.add_argument('--reverse', default=False, help='if True, use female, older for training; if False, use female or younger for training')
+parser.add_argument('--feature_removal_level', type=str, default='set', choices=['no_removal', 'set', 'sample'],
+                    help='use this only when splittype==random; otherwise, set as no_removal')
+# args = parser.parse_args() #args=[]
+args, unknown = parser.parse_known_args()
+
 # training modes
 arch = 'standard'
 
 model_path = '../../models/'
 
-dataset = 'PAMAP2'     # possible values: 'P12', 'P19', 'eICU', 'PAMAP2'
+dataset = args.dataset     # possible values: 'P12', 'P19', 'eICU', 'PAMAP2'
 print('Dataset used: ', dataset)
 
 if dataset == 'P12':
@@ -68,10 +79,13 @@ extended_static_params=['Age', 'Gender=0', 'Gender=1', 'Height', 'ICUType=1', 'I
  'ICUType=4', 'Weight']
 
 
-feature_removal_level = 'set'   # possible values: 'sample', 'set'
-# missing_ratios = [0.0, 0.1, 0.2, 0.3, 0.4, 0.5]
+feature_removal_level = args.feature_removal_level   # possible values: 'sample', 'set'
 
-missing_ratios = [0.1]
+if args.withmissingratio == True:
+    missing_ratios = [0.1, 0.2, 0.3, 0.4, 0.5]  # if True, with missing ratio, 0.1, 0.2, 0.3, 0.4, 0.5
+else:
+    missing_ratios = [0]
+
 for missing_ratio in missing_ratios:
     # training/model params
     num_epochs = 20
@@ -135,8 +149,8 @@ for missing_ratio in missing_ratios:
     """reverse= True: male, age<65 for training. 
      reverse=False: female, age>65 for training"""
     """baseline=True: run baselines. False: run our model (Raindrop)"""
-    split = 'random'    # possible values: 'random', 'age', 'gender'
-    reverse = False
+    split = args.splittype    # possible values: 'random', 'age', 'gender'
+    reverse = args.reverse
     baseline = True
 
     acc_arr = np.zeros((n_splits, n_runs))

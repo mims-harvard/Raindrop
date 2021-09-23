@@ -4,9 +4,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-# import os
-# os.add_dll_directory('c:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v10.1/bin')
-# os.add_dll_directory(os.path.dirname(__file__))
+import os
+os.add_dll_directory('c:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v10.1/bin')
+os.add_dll_directory(os.path.dirname(__file__))
 
 from torch.nn.parameter import Parameter
 # from torch_geometric.nn import TransformerConv
@@ -158,7 +158,9 @@ class TransformerModel2(nn.Module):
         self.encoder = nn.Linear(d_inp, d_enc)
         # self.d_model = d_model
 
-        self.emb = nn.Linear(d_static, d_inp)
+        self.static = static
+        if self.static:
+            self.emb = nn.Linear(d_static, d_inp)
 
         # d_fi = d_pe+d_enc + 16 + d_inp
         # d_fi = d_pe+d_enc  + d_inp
@@ -183,7 +185,8 @@ class TransformerModel2(nn.Module):
     def init_weights(self):
         initrange = 1e-10
         self.encoder.weight.data.uniform_(-initrange, initrange)
-        self.emb.weight.data.uniform_(-initrange, initrange)
+        if self.static:
+            self.emb.weight.data.uniform_(-initrange, initrange)
 
     def forward(self, src, static, times, lengths):
         maxlen, batch_size = src.shape[0], src.shape[1]  # src.shape = [215, 128, 72]
