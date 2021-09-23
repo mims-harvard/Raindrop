@@ -294,7 +294,7 @@ if __name__ == '__main__':
                 idx_0 = np.where(ytrain == 0)[0]
                 idx_1 = np.where(ytrain == 1)[0]
 
-                strategy = 3 # 2
+                strategy = 3  # 2
 
                 """Upsampling, increase the number of positive samples"""
                 # Strategy 2: permute randomly each index set at each epoch, and expand x3 minority set
@@ -342,7 +342,7 @@ if __name__ == '__main__':
                             idx0_batch = I0[n * int(batch_size / 2):(n + 1) * int(batch_size / 2)]
                             idx1_batch = I1[n * int(batch_size / 2):(n + 1) * int(batch_size / 2)]
                             idx = np.concatenate([idx0_batch, idx1_batch], axis=0)
-                        elif strategy ==3:
+                        elif strategy == 3:
                             idx = np.random.choice(list(range(Ptrain_tensor.shape[1])), size=int(batch_size), replace=False)
 
 
@@ -396,7 +396,6 @@ if __name__ == '__main__':
                             # probs = np.exp(out_test) / denoms
 
                             out_val = out_val.detach().cpu().numpy()
-
 
                             val_loss = criterion(torch.from_numpy(out_val), torch.from_numpy(yval.squeeze(1)).long())
 

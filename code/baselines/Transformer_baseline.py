@@ -71,7 +71,7 @@ extended_static_params=['Age', 'Gender=0', 'Gender=1', 'Height', 'ICUType=1', 'I
 feature_removal_level = 'set'   # possible values: 'sample', 'set'
 # missing_ratios = [0.0, 0.1, 0.2, 0.3, 0.4, 0.5]
 
-missing_ratios = [0.0]
+missing_ratios = [0.1]
 for missing_ratio in missing_ratios:
     # training/model params
     num_epochs = 20
@@ -289,12 +289,14 @@ for missing_ratio in missing_ratios:
             expanded_n1 = len(expanded_idx_1)
 
             batch_size = 128  # balanced batch size
-            if strategy == 1 or strategy == 3:
+            if strategy == 1:
                 n_batches = 10  # number of batches to process per epoch
             elif strategy == 2:
                 K0 = n0 // int(batch_size / 2)
                 K1 = expanded_n1 // int(batch_size / 2)
                 n_batches = np.min([K0, K1])
+            elif strategy == 3:
+                n_batches = 30
 
             best_aupr_val = best_auc_val = 0.0
             print('Stop epochs: %d, Batches/epoch: %d, Total batches: %d' % (num_epochs, n_batches, num_epochs * n_batches))
@@ -329,6 +331,7 @@ for missing_ratio in missing_ratios:
                         idx = np.concatenate([idx0_batch, idx1_batch], axis=0)
                     elif strategy == 3:
                         idx = np.random.choice(list(range(Ptrain_tensor.shape[1])), size=int(batch_size), replace=False)
+                        # idx = random_sample_8(ytrain, batch_size)   # to balance dataset
 
                     if dataset == 'P12' or dataset == 'P19' or dataset == 'eICU':
                         P, Ptime, Pstatic, y = Ptrain_tensor[:, idx, :].cuda(), Ptrain_time_tensor[:, idx].cuda(), \
@@ -369,8 +372,8 @@ for missing_ratio in missing_ratios:
                     train_auroc = roc_auc_score(one_hot(train_y), train_probs)
                     train_auprc = average_precision_score(one_hot(train_y), train_probs)
 
-                print("Train: Epoch %d, train loss:%.4f, train_auprc: %.2f, train_auroc: %.2f" % (
-                        epoch, loss.item(),  train_auprc * 100, train_auroc * 100))
+                # print("Train: Epoch %d, train loss:%.4f, train_auprc: %.2f, train_auroc: %.2f" % (
+                #         epoch, loss.item(),  train_auprc * 100, train_auroc * 100))
                 if wandb:
                     wandb.log({ "train_loss": loss.item(), "train_auprc": train_auprc, "train_auroc": train_auroc})
                 # if epoch == 0 or epoch == num_epochs-1:
@@ -446,8 +449,8 @@ for missing_ratio in missing_ratios:
                     auc = roc_auc_score(ytest, probs[:, 1])
                     aupr = average_precision_score(ytest, probs[:, 1])
                 elif dataset == 'PAMAP2':
-                    auc = roc_auc_score(one_hot(ytest), out_test)  # todo
-                    aupr = average_precision_score(one_hot(ytest), out_test)   # todo: probs/out_test
+                    auc = roc_auc_score(one_hot(ytest), probs)
+                    aupr = average_precision_score(one_hot(ytest), probs)
 
                 if dataset == 'PAMAP2':
                     precision = precision_score(ytest, ypred, average='macro', labels=np.unique(ypred))
