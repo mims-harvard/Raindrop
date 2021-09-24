@@ -11,6 +11,14 @@ from sklearn import metrics
 from sklearn.metrics import precision_score, recall_score, f1_score
 from person_activity import PersonActivity
 
+def one_hot(y_):
+    # Function to encode output labels from number indexes
+    # e.g.: [[5], [0], [3]] --> [[0, 0, 0, 0, 0, 1], [1, 0, 0, 0, 0, 0], [0, 0, 0, 1, 0, 0]]
+    y_ = y_.reshape(len(y_))
+
+    y_ = [int(x) for x in y_]
+    n_values = np.max(y_) + 1
+    return np.eye(n_values)[np.array(y_, dtype=np.int32)]
 
 def count_parameters(model):
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
@@ -164,11 +172,14 @@ def evaluate_classifier(model, test_loader, dec=None, args=None, classifier=None
         aupr = average_precision_score(true, pred[:, 1]) if not args.classify_pertp else 0.
         return test_loss / pred.shape[0], acc, auc, aupr, None, None, None
     elif dataset == 'PAMAP2':
-        auc = metrics.roc_auc_score(true, pred) if not args.classify_pertp else 0.
-        aupr = average_precision_score(true, pred) if not args.classify_pertp else 0.
-        precision = precision_score(true, pred, average='macro', labels=np.unique(pred)) if not args.classify_pertp else 0.
-        recall = recall_score(true, pred, average='macro', labels=np.unique(pred)) if not args.classify_pertp else 0.
-        F1 = f1_score(true, pred, average='macro', labels=np.unique(pred)) if not args.classify_pertp else 0.
+#         auc = metrics.roc_auc_score(true, pred) if not args.classify_pertp else 0.
+        auc = metrics.roc_auc_score(one_hot(true), pred) if not args.classify_pertp else 0.
+#         aupr = average_precision_score(true, pred) if not args.classify_pertp else 0.
+        aupr = average_precision_score(one_hot(true), pred) if not args.classify_pertp else 0.
+        print(true.shape, pred.shape, true[0], pred[0])
+        precision = precision_score(true, pred.argmax(1), average='macro', ) if not args.classify_pertp else 0.
+        recall = recall_score(true, pred.argmax(1), average='macro', ) if not args.classify_pertp else 0.
+        F1 = f1_score(true, pred.argmax(1), average='macro', labels=np.unique(pred)) if not args.classify_pertp else 0.
         return test_loss/pred.shape[0], acc, auc, aupr, precision, recall, F1
 
 
@@ -546,22 +557,22 @@ def get_data(args, dataset, device, q, upsampling_batch, split_type, feature_rem
                 if dataset == 'P12':
                     dict_params = train_dataset_obj_1.params_dict
                     # density_scores_names = np.load('density_scores.npy', allow_pickle=True)[:, 2]
-                    density_scores_names = np.load('IG_density_scores_P12.npy', allow_pickle=True)[:, 1]
+                    density_scores_names = np.load('../saved/IG_density_scores_P12.npy', allow_pickle=True)[:, 1]
                     idx = [dict_params[name] for name in density_scores_names[:num_missing_features]]
                 elif dataset == 'P19':
                     labels_ts = np.load('../../../P19data/processed_data/labels_ts.npy', allow_pickle=True)
                     dict_params = {label: i for i, label in enumerate(labels_ts[:-1])}
                     # density_scores_names = np.load('P19_density_scores.npy', allow_pickle=True)[:, 2]
-                    density_scores_names = np.load('IG_density_scores_P19.npy', allow_pickle=True)[:, 1]
+                    density_scores_names = np.load('../saved/IG_density_scores_P19.npy', allow_pickle=True)[:, 1]
                     idx = [dict_params[name] for name in density_scores_names[:num_missing_features]]
                 elif dataset == 'eICU':
                     labels_ts = np.load('../../../eICUdata/processed_data/eICU_ts_vars.npy', allow_pickle=True)
                     dict_params = {label: i for i, label in enumerate(labels_ts)}
                     # density_scores_names = np.load('eICU_density_scores.npy', allow_pickle=True)[:, 2]
-                    density_scores_names = np.load('IG_density_scores_eICU.npy', allow_pickle=True)[:, 1]
+                    density_scores_names = np.load('../saved/IG_density_scores_eICU.npy', allow_pickle=True)[:, 1]
                     idx = [dict_params[name] for name in density_scores_names[:num_missing_features]]
                 elif dataset == 'PAMAP2':
-                    density_scores_indices = np.load('IG_density_scores_PAMAP2.npy', allow_pickle=True)[:, 0]
+                    density_scores_indices = np.load('../saved/IG_density_scores_PAMAP2.npy', allow_pickle=True)[:, 0]
                     idx = list(map(int, density_scores_indices[:num_missing_features]))
 
                 for i, tpl in enumerate(val_data):
