@@ -255,42 +255,54 @@ class SEFT(nn.Module):
         n_classes = number of classes
     """
 
-    def __init__(self, d_inp, d_model, nhead, nhid, nlayers, dropout, max_len, d_static, MAX, perc, aggreg, n_classes, static=True):
+    def __init__(self, d_inp, d_model, nhead, nhid, nlayers, dropout, max_len, d_static, MAX, perc, aggreg, n_classes,
+                 static=True):
         super().__init__()
         from torch.nn import TransformerEncoder, TransformerEncoderLayer
         self.model_type = 'Transformer'
 
-        d_pe = int(perc * d_model)
-        d_enc = d_model - d_pe
+        # d_pe = int(perc * d_model)
+        # d_enc = d_model - d_pe
+        d_pe = 16
+        d_enc = d_inp
 
         # d_pe = 16
 
-        self.pos_encoder = PositionalEncodingTF(d_pe, max_len, MAX)
 
+        self.pos_encoder = PositionalEncodingTF(d_pe, max_len, MAX)
         self.pos_encoder_value = PositionalEncodingTF(d_pe, max_len, MAX)
         self.pos_encoder_sensor = PositionalEncodingTF(d_pe, max_len, MAX)
 
         self.linear_value = nn.Linear(1, 16)
         self.linear_sensor = nn.Linear(1, 16)
 
-        self.d_K = 2*(d_pe+2)  # 36 = 2*(16+1+1), 16 is positional encoding dimension
-        # self.d_K = 2 * (d_pe*3)
+        # self.d_K = 2*(d_pe+2)  # 36 = 2*(16+1+1), 16 is positional encoding dimension
+        self.d_K = 2 * (d_pe+ 16+16)
 
-        encoder_layers = TransformerEncoderLayer(self.d_K, nhead, nhid, dropout)
+
+        encoder_layers = TransformerEncoderLayer(self.d_K, 1, nhid, dropout)
         self.transformer_encoder = TransformerEncoder(encoder_layers, nlayers)
 
-        encoder_layers_f_prime = TransformerEncoderLayer(int(self.d_K//2), 2, nhid, dropout)
+        encoder_layers_f_prime = TransformerEncoderLayer(int(self.d_K//2), 1, nhid, dropout)
         self.transformer_encoder_f_prime = TransformerEncoder(encoder_layers_f_prime, 2)
 
         # self.encoder = nn.Linear(d_inp, d_enc)
         # self.d_model = d_model
-        self.static = static
-        if self.static:
-            self.emb = nn.Linear(d_static, 16)
+
+        self.emb = nn.Linear(d_static, 16)
 
         self.proj_weight = Parameter(torch.Tensor(self.d_K, 128))
 
+        self.lin_map = nn.Linear(self.d_K, 128) # why this linear make it worse? All
+        # self.lin_map = nn.Linear(4, 128) # no pe, only values
+
         d_fi = 128 + 16
+
+        # d_fi = d_inp
+        if static == False:
+            d_fi = 128  # + d_inp  # if static is None
+        else:
+            d_fi = 128 + d_pe
         self.mlp = nn.Sequential(
             nn.Linear(d_fi, d_fi),
             nn.ReLU(),
@@ -298,7 +310,6 @@ class SEFT(nn.Module):
         )
 
         self.aggreg = aggreg
-        # self.bn = nn.BatchNorm1d(50)
 
         self.relu = nn.ReLU()
         self.dropout = nn.Dropout(dropout)
@@ -307,10 +318,10 @@ class SEFT(nn.Module):
     def init_weights(self):
         initrange = 1e-10
         # self.encoder.weight.data.uniform_(-initrange, initrange)
-        if self.static:
-            self.emb.weight.data.uniform_(-initrange, initrange)
+        self.emb.weight.data.uniform_(-initrange, initrange)
         self.linear_value.weight.data.uniform_(-initrange, initrange)
         self.linear_sensor.weight.data.uniform_(-initrange, initrange)
+        self.lin_map.weight.data.uniform_(-initrange, initrange)
         xavier_uniform_(self.proj_weight)
 
     def forward(self, src, static, times, lengths):
@@ -318,34 +329,40 @@ class SEFT(nn.Module):
 
         """Decompose into instances: why 72 features (36 feature + 36 mask)"""
         src = src.permute(1, 0,2) # shape [128, 215, 36+36]
-        fea = src[:, :, :36]  # [128, 215, 36]
+        # fea = src[:, :, :36]  # [128, 215, 36]
+        fea = src[:, :, :int(src.shape[2]/2)]
         # mask = src[:, :, 36:]
 
         output = torch.zeros((batch_size, self.d_K)).cuda()  # 68 = 2*(32+1+1)
+        # output = torch.ones((batch_size, 4)).cuda()
         for i in range(batch_size):
             nonzero_index = fea[i].nonzero(as_tuple=False)
+            if nonzero_index.shape[0]==0:
+                continue
             values = fea[i][nonzero_index[:,0], nonzero_index[:,1]] # v in SEFT paper
             time_index = nonzero_index[:,0]
             time_sequence = times[:, i]
             time_points = time_sequence[time_index]  # t in SEFT paper
             pe_ = self.pos_encoder(time_points.unsqueeze(1)).squeeze(1)
+            # pe_ = torch.zeros(pe_.shape).cuda()
+
             variable = nonzero_index[:,1] # the dimensions of variables. The m value in SEFT paper.
 
             unit = torch.cat([pe_, values.unsqueeze(1), variable.unsqueeze(1)], dim=1)
 
-            # # """positional encoding"""  AUROC ~0.86 Why positional encoding works?
-            # # values_ = self.pos_encoder_value(values.unsqueeze(1)).squeeze(1)
-            # variable_ = self.pos_encoder_sensor(variable.unsqueeze(1)).squeeze(1)
-            #
-            # """linear mapping""" # AUROC~0.8
-            # # values_ =  self.linear_value(values.float().unsqueeze(1)).squeeze(1)
-            # # variable_ = self.linear_sensor(variable.float().unsqueeze(1)).squeeze(1)
-            #
-            # """Nonlinear transformation""" # AUROC ~0.8
+            # """positional encoding"""  AUROC ~0.86 Why positional encoding works?
+            # values_ = self.pos_encoder_value(values.unsqueeze(1)).squeeze(1)
+            variable_ = self.pos_encoder_sensor(variable.unsqueeze(1)).squeeze(1)
+
+            """linear mapping""" # AUROC~0.8
+            values_ =  self.linear_value(values.float().unsqueeze(1)).squeeze(1)
+            # variable_ = self.linear_sensor(variable.float().unsqueeze(1)).squeeze(1)
+
+            """Nonlinear transformation""" # AUROC ~0.8
             # values_ =  F.relu(self.linear_value(values.float().unsqueeze(1))).squeeze(1)
-            # # variable_ =  F.relu(self.linear_sensor(variable.float().unsqueeze(1))).squeeze(1)
-            #
-            # unit = torch.cat([pe_, values_, variable_], dim=1)
+            # variable_ =  F.relu(self.linear_sensor(variable.float().unsqueeze(1))).squeeze(1)
+
+            unit = torch.cat([pe_, values_, variable_], dim=1)
             # """Add Normalization across samples here, to make all 48-dimensions are in similar scale"""
             # unit = F.normalize(unit, dim=1)
 
@@ -356,20 +373,32 @@ class SEFT(nn.Module):
             f_prime = torch.mean(unit, dim=0)
 
             x = torch.cat([f_prime.repeat(unit.shape[0], 1), unit], dim=1)
+            # x = torch.cat([unit, unit], dim=1)
+
             x = x.unsqueeze(1) #.repeat(1,2,1)  # shape[469, 2, 68]
-            output_unit = self.transformer_encoder(x)
+            # output_unit = self.transformer_encoder(x)
+
+            output_unit = x
+
             output_unit = torch.mean(output_unit, dim=0)
             output[i,:] = output_unit
-        # print(output.shape)
-        output = output.matmul(self.proj_weight)  # dimension: 68-->32
 
+        output = self.lin_map(output) # dimension: 68-->32
+
+        # emb = self.emb(static)  # Linear layer: 9--> 16
         if static is not None:
             emb = self.emb(static)  # emb.shape = [128, 64]. Linear layer: 9--> 64
 
+
         # feed through MLP
-        output = torch.cat([emb, output], dim=1)  # x.shape: [216, 128, 64]
+        # output = torch.cat([ output, emb], dim=1)  # x.shape: [216, 128, 64]
+        if static is not None:
+            output = torch.cat([output, emb], dim=1) # [128, 36*5+9] # emb with dim: d_model
+        # output = torch.mean(fea, dim=1)
         output = self.mlp(output)  # two linears: 64-->64-->2
+        # output = torch.nan_to_num(output)
         return output
+
 
 # class HGT_latconcat(nn.Module):
 #     ""
