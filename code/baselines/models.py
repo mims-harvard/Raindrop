@@ -4,9 +4,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-import os
-os.add_dll_directory('c:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v10.1/bin')
-os.add_dll_directory(os.path.dirname(__file__))
+# import os
+# os.add_dll_directory('c:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v10.1/bin')
+# os.add_dll_directory(os.path.dirname(__file__))
 
 from torch.nn.parameter import Parameter
 # from torch_geometric.nn import TransformerConv
@@ -265,7 +265,6 @@ class SEFT(nn.Module):
 
         # d_pe = 16
 
-
         self.pos_encoder = PositionalEncodingTF(d_pe, max_len, MAX)
 
         self.pos_encoder_value = PositionalEncodingTF(d_pe, max_len, MAX)
@@ -277,7 +276,6 @@ class SEFT(nn.Module):
         self.d_K = 2*(d_pe+2)  # 36 = 2*(16+1+1), 16 is positional encoding dimension
         # self.d_K = 2 * (d_pe*3)
 
-
         encoder_layers = TransformerEncoderLayer(self.d_K, nhead, nhid, dropout)
         self.transformer_encoder = TransformerEncoder(encoder_layers, nlayers)
 
@@ -286,8 +284,9 @@ class SEFT(nn.Module):
 
         # self.encoder = nn.Linear(d_inp, d_enc)
         # self.d_model = d_model
-
-        self.emb = nn.Linear(d_static, 16)
+        self.static = static
+        if self.static:
+            self.emb = nn.Linear(d_static, 16)
 
         self.proj_weight = Parameter(torch.Tensor(self.d_K, 128))
 
@@ -308,7 +307,8 @@ class SEFT(nn.Module):
     def init_weights(self):
         initrange = 1e-10
         # self.encoder.weight.data.uniform_(-initrange, initrange)
-        self.emb.weight.data.uniform_(-initrange, initrange)
+        if self.static:
+            self.emb.weight.data.uniform_(-initrange, initrange)
         self.linear_value.weight.data.uniform_(-initrange, initrange)
         self.linear_sensor.weight.data.uniform_(-initrange, initrange)
         xavier_uniform_(self.proj_weight)
@@ -1313,8 +1313,9 @@ class Simple_classifier(nn.Module):
 
         self.encoder = nn.Linear(d_inp, d_enc)
         # self.d_model = d_model
-
-        self.emb = nn.Linear(d_static, d_inp)
+        self.static = static
+        if self.static:
+            self.emb = nn.Linear(d_static, d_inp)
 
         # d_fi = d_pe+d_enc + 16 + d_inp
         # d_final =  d_enc +d_pe  + d_inp
@@ -1333,7 +1334,8 @@ class Simple_classifier(nn.Module):
         self.d_inp = d_inp
         self.d_model = d_model
         self.encoder = nn.Linear(d_inp, d_enc)
-        self.emb = nn.Linear(d_static, d_model)
+        if self.static:
+            self.emb = nn.Linear(d_static, d_model)
 
         self.MLP_replace_transformer = nn.Linear(72, 36)
 
@@ -1354,7 +1356,8 @@ class Simple_classifier(nn.Module):
     def init_weights(self):
         initrange = 1e-10
         self.encoder.weight.data.uniform_(-initrange, initrange)
-        self.emb.weight.data.uniform_(-initrange, initrange)
+        if self.static:
+            self.emb.weight.data.uniform_(-initrange, initrange)
         # glorot(self.adj)
         # self.adj.uniform_(0, 0.5)  # initialize as 0-0.5
 
@@ -1511,7 +1514,9 @@ class Raindrop(nn.Module):
         self.d_inp = d_inp
         self.d_model = d_model
         self.encoder = nn.Linear(d_inp, d_enc)
-        self.emb = nn.Linear(d_static, d_model)
+        self.static = static
+        if self.static:
+            self.emb = nn.Linear(d_static, d_model)
 
         self.MLP_replace_transformer = nn.Linear(72, 36)
 
@@ -1532,7 +1537,8 @@ class Raindrop(nn.Module):
     def init_weights(self):
         initrange = 1e-10
         self.encoder.weight.data.uniform_(-initrange, initrange)
-        self.emb.weight.data.uniform_(-initrange, initrange)
+        if self.static:
+            self.emb.weight.data.uniform_(-initrange, initrange)
         # self.adj.uniform_(0, 0.5)  # initialize as 0-0.5
 
     def forward(self, src, static, times, lengths):

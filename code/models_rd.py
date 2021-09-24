@@ -4,9 +4,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-import os
-os.add_dll_directory('c:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v10.1/bin')
-os.add_dll_directory(os.path.dirname(__file__))
+# import os
+# os.add_dll_directory('c:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v10.1/bin')
+# os.add_dll_directory(os.path.dirname(__file__))
 
 
 from torch.nn.parameter import Parameter

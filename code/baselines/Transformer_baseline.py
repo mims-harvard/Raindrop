@@ -465,8 +465,6 @@ for missing_ratio in missing_ratios:
                 elif dataset == 'PAMAP2':
                     auc = roc_auc_score(one_hot(ytest), probs)
                     aupr = average_precision_score(one_hot(ytest), probs)
-
-                if dataset == 'PAMAP2':
                     precision = precision_score(ytest, ypred, average='macro', labels=np.unique(ypred))
                     recall = recall_score(ytest, ypred, average='macro', labels=np.unique(ypred))
                     F1 = f1_score(ytest, ypred, average='macro', labels=np.unique(ypred))
@@ -475,7 +473,6 @@ for missing_ratio in missing_ratios:
                 print('Testing: AUROC = %.2f | AUPRC = %.2f | Accuracy = %.2f' % (auc * 100, aupr * 100, acc * 100))
                 print('classification report', classification_report(ytest, ypred))
                 print(confusion_matrix(ytest, ypred, labels=list(range(n_classes))))
-
 
             # store
             acc_arr[k, m] = acc * 100

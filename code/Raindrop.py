@@ -112,7 +112,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--dataset', type=str, default='P19', choices=['P12', 'P19', 'eICU', 'PAMAP2']) #
 parser.add_argument('--withmissingratio', default=False, help='if True, missing ratio ranges from 0 to 0.5; if False, missing ratio =0') #
 parser.add_argument('--splittype', type=str, default='gender', choices=['random', 'age', 'gender'], help='only use for P12 and P19')
-parser.add_argument('--reverse', default=True, help='if True,use female, older for tarining; if False, use female or younger for training') #
+parser.add_argument('--reverse', default=True, help='if True, use female, older for training; if False, use female or younger for training') #
 parser.add_argument('--feature_removal_level', type=str, default='set', choices=['no_removal', 'set', 'sample'],
                     help='use this only when splittype==random; otherwise, set as no_removal') #
 # args = parser.parse_args() #args=[]
@@ -595,8 +595,6 @@ for missing_ratio in missing_ratios:
                 elif dataset == 'PAMAP2':
                     auc = roc_auc_score(one_hot(ytest), probs)
                     aupr = average_precision_score(one_hot(ytest), probs)
-
-                if dataset == 'PAMAP2':
                     precision = precision_score(ytest, ypred, average='macro', labels=np.unique(ypred))
                     recall = recall_score(ytest, ypred, average='macro', labels=np.unique(ypred))
                     F1 = f1_score(ytest, ypred, average='macro', labels=np.unique(ypred))

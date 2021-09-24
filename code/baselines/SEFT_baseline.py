@@ -19,8 +19,7 @@ if wandb:
     run = wandb.init(project='Raindrop', entity='xiang_zhang', config={'wandb_nb':'wandb_three_in_one_hm'})
 
 
-from sklearn.metrics import roc_auc_score, classification_report, confusion_matrix
-from sklearn.metrics import average_precision_score
+from sklearn.metrics import roc_auc_score, classification_report, confusion_matrix, average_precision_score, precision_score, recall_score, f1_score
 
 import sys
 # os.path.abspath('../')
@@ -28,14 +27,14 @@ import sys
 from models import TransformerModel, TransformerModel2, SEFT
 from utils_baselines import *
 from utils_phy12 import *
+from PAMAP2_dataset import one_hot
 
 torch.manual_seed(1)
 
 import argparse
 parser = argparse.ArgumentParser()
 parser.add_argument('--dataset', type=str, default='P19', choices=['P12', 'P19', 'eICU', 'PAMAP2']) #
-parser.add_argument('--splittype', type=str, default='age', choices=['random', 'age', 'gender'], help='only use for P12 and P19')
-
+parser.add_argument('--splittype', type=str, default='random', choices=['random', 'age', 'gender'], help='only use for P12 and P19')
 parser.add_argument('--withmissingratio', default=False, help='if True, missing ratio ranges from 0 to 0.5; if False, missing ratio =0') #
 parser.add_argument('--reverse', default=False, help='if True,use female, older for tarining; if False, use female or younger for training') #
 parser.add_argument('--feature_removal_level', type=str, default='no_removal', choices=['no_removal', 'set', 'sample'],
@@ -44,13 +43,12 @@ parser.add_argument('--feature_removal_level', type=str, default='no_removal', c
 args, unknown = parser.parse_known_args()
 
 
-
 # training modes
 arch = 'standard'
 
 model_path = '../../models/'
 
-dataset = args.dataset     # possible values: 'P12', 'P19', 'eICU'
+dataset = args.dataset     # possible values: 'P12', 'P19', 'eICU', 'PAMAP2'
 print('Dataset used: ', dataset)
 print('args.dataset, args.splittype, args.reverse, args.withmissingratio, args.feature_removal_level',
       args.dataset, args.splittype, args.reverse, args.withmissingratio, args.feature_removal_level)
@@ -61,6 +59,8 @@ elif dataset == 'P19':
     base_path = '../../P19data'
 elif dataset == 'eICU':
     base_path = '../../eICUdata'
+elif dataset == 'PAMAP2':
+    base_path = '../../PAMAP2data'
 
 # ### show the names of variables and statistic descriptors
 # ts_params = np.load(base_path + '/processed_data/ts_params.npy', allow_pickle=True)
@@ -104,12 +104,20 @@ for missing_ratio in missing_ratios:
     if dataset == 'P12':
         d_static = 9
         d_inp = 36
+        static_info = 1
     elif dataset == 'P19':
         d_static = 6
         d_inp = 34
+        static_info = 1
     elif dataset == 'eICU':
         d_static = 399
         d_inp = 14
+        static_info = 1
+    elif dataset == 'PAMAP2':
+        d_static = 0
+        d_inp = 17
+        static_info = None
+
     # emb_len     = 10
 
     # d_inp = 36 * 2 # concat mask in mask_normalize function
@@ -117,7 +125,7 @@ for missing_ratio in missing_ratios:
     d_model = d_inp  # 256
 
     # d_model = 32  # 256
-    nhid =  2 * d_model
+    nhid = 2 * d_model
 
     # nhid = 256
     # nhid = 512  # seems to work better than 2*d_model=256
@@ -132,15 +140,20 @@ for missing_ratio in missing_ratios:
 
     if dataset == 'P12':
         max_len = 215
+        n_classes = 2
     elif dataset == 'P19':
         max_len = 60
+        n_classes = 2
     elif dataset == 'eICU':
         max_len = 300
+        n_classes = 2
+    elif dataset == 'PAMAP2':
+        max_len = 600
+        n_classes = 8
 
     aggreg = 'mean'
     # aggreg = 'max'
 
-    n_classes = 2
     # MAX = d_model
     MAX = 100
 
@@ -148,11 +161,12 @@ for missing_ratio in missing_ratios:
     n_splits = 5  # change this from 5 to 1, in order to save debugging time.
     subset = True  # use subset for better debugging in local PC, which only contains 1200 patients
 
-
-
     acc_arr = np.zeros((n_splits, n_runs))
     auprc_arr = np.zeros((n_splits, n_runs))
     auroc_arr = np.zeros((n_splits, n_runs))
+    precision_arr = np.zeros((n_splits, n_runs))
+    recall_arr = np.zeros((n_splits, n_runs))
+    F1_arr = np.zeros((n_splits, n_runs))
     for k in range(n_splits):
         split_idx = k+1
         # split_idx =
@@ -167,6 +181,8 @@ for missing_ratio in missing_ratios:
             split_path = '/splits/phy19_split' + str(split_idx) + '_new.npy'
         elif dataset == 'eICU':
             split_path = '/splits/eICU_split' + str(split_idx) + '.npy'
+        elif dataset == 'PAMAP2':
+            split_path = '/splits/PAMAP2_split_' + str(split_idx) + '.npy'
 
         # prepare the data:
         # print('args.dataset, args.splittype, args.reverse, args.withmissingratio, args.feature_removal_level',
@@ -187,31 +203,45 @@ for missing_ratio in missing_ratios:
         #     read_and_prepare_data(base_path, split_path, normalization, feature_removal_level, missing_ratio,
         #                           imputation=imputation_method, split_type=split_type)
 
-        T, F = Ptrain[0]['arr'].shape
-        D = len(Ptrain[0]['extended_static'])
-        print(T, F, D)
+        if dataset == 'P12' or dataset == 'P19' or dataset == 'eICU':
+            T, F = Ptrain[0]['arr'].shape
+            D = len(Ptrain[0]['extended_static'])
+            print(T, F, D)
 
-        # get mean, std stats from train set
-        Ptrain_tensor = np.zeros((len(Ptrain), T, F))  # shape: (9600, 215, 36)
-        Ptrain_static_tensor = np.zeros((len(Ptrain), D))  # shape: (9600, 9)
+            # get mean, std stats from train set
+            Ptrain_tensor = np.zeros((len(Ptrain), T, F))  # shape: (9600, 215, 36)
+            Ptrain_static_tensor = np.zeros((len(Ptrain), D))  # shape: (9600, 9)
 
-        # feed features to tensor. This step can be improved
-        for i in range(len(Ptrain)):
-            Ptrain_tensor[i] = Ptrain[i]['arr']
-            Ptrain_static_tensor[i] = Ptrain[i]['extended_static']
+            # feed features to tensor. This step can be improved
+            for i in range(len(Ptrain)):
+                Ptrain_tensor[i] = Ptrain[i]['arr']
+                Ptrain_static_tensor[i] = Ptrain[i]['extended_static']
 
-        """Z-score Normalization. Before this step, we can remove Direct current shift (minus the average) """
-        mf, stdf = getStats(Ptrain_tensor)
-        ms, ss = getStats_static(Ptrain_static_tensor, dataset=dataset)
+            """Z-score Normalization. Before this step, we can remove Direct current shift (minus the average) """
+            mf, stdf = getStats(Ptrain_tensor)
+            ms, ss = getStats_static(Ptrain_static_tensor, dataset=dataset)
 
-        Ptrain_tensor, Ptrain_static_tensor, Ptrain_time_tensor, ytrain_tensor = tensorize_normalize(Ptrain, ytrain, mf,
-                                                                                                     stdf, ms, ss)
-        Pval_tensor, Pval_static_tensor, Pval_time_tensor, yval_tensor = tensorize_normalize(Pval, yval, mf, stdf, ms, ss)
-        Ptest_tensor, Ptest_static_tensor, Ptest_time_tensor, ytest_tensor = tensorize_normalize(Ptest, ytest, mf, stdf, ms,
-                                                                                          ss)
-        """After normalization, a large proportion (more than half) of the values are becoming 1."""
-        print(Ptrain_tensor.shape, Ptrain_static_tensor.shape, Ptrain_time_tensor.shape, ytrain_tensor.shape)
-        # the shapes are: torch.Size([960, 215, 72]) torch.Size([960, 9]) torch.Size([960, 215, 1]) torch.Size([960])
+            Ptrain_tensor, Ptrain_static_tensor, Ptrain_time_tensor, ytrain_tensor = tensorize_normalize(Ptrain, ytrain, mf,
+                                                                                                         stdf, ms, ss)
+            Pval_tensor, Pval_static_tensor, Pval_time_tensor, yval_tensor = tensorize_normalize(Pval, yval, mf, stdf, ms, ss)
+            Ptest_tensor, Ptest_static_tensor, Ptest_time_tensor, ytest_tensor = tensorize_normalize(Ptest, ytest, mf, stdf, ms,
+                                                                                              ss)
+            """After normalization, a large proportion (more than half) of the values are becoming 1."""
+            print(Ptrain_tensor.shape, Ptrain_static_tensor.shape, Ptrain_time_tensor.shape, ytrain_tensor.shape)
+            # the shapes are: torch.Size([960, 215, 72]) torch.Size([960, 9]) torch.Size([960, 215, 1]) torch.Size([960])
+        elif dataset == 'PAMAP2':
+            T, F = Ptrain[0].shape
+            D = 1
+            print(T, F, D)
+
+            # get mean, std stats from train set
+            Ptrain_tensor = Ptrain
+            Ptrain_static_tensor = np.zeros((len(Ptrain), D))
+
+            mf, stdf = getStats(Ptrain)
+            Ptrain_tensor, Ptrain_static_tensor, Ptrain_time_tensor, ytrain_tensor = tensorize_normalize_other(Ptrain, ytrain, mf, stdf)
+            Pval_tensor, Pval_static_tensor, Pval_time_tensor, yval_tensor = tensorize_normalize_other(Pval, yval, mf, stdf)
+            Ptest_tensor, Ptest_static_tensor, Ptest_time_tensor, ytest_tensor = tensorize_normalize_other(Ptest, ytest, mf, stdf)
 
         # remove part of variables in validation and test set
         if missing_ratio > 0:
@@ -276,9 +306,12 @@ for missing_ratio in missing_ratios:
             # instantiate model
             # model = TransformerModel2(d_inp, d_model, nhead, nhid, nlayers, dropout, max_len,
             #                           d_static, MAX, 0.5, aggreg, n_classes)
-
-            model = SEFT(d_inp, d_model, nhead, nhid, nlayers, dropout, max_len,
-                                      d_static, MAX, 0.5, aggreg, n_classes)
+            if dataset == 'P12' or dataset == 'P19' or dataset == 'eICU':
+                model = SEFT(d_inp, d_model, nhead, nhid, nlayers, dropout, max_len,
+                                          d_static, MAX, 0.5, aggreg, n_classes)
+            elif dataset == 'PAMAP2':
+                model = SEFT(d_inp, d_model, nhead, nhid, nlayers, dropout, max_len,
+                             d_static, MAX, 0.5, aggreg, n_classes, static=False)
 
             model = model.cuda()
 
@@ -292,7 +325,10 @@ for missing_ratio in missing_ratios:
             idx_0 = np.where(ytrain == 0)[0]
             idx_1 = np.where(ytrain == 1)[0]
 
-            strategy = 2
+            if dataset == 'P12' or dataset == 'P19' or dataset == 'eICU':
+                strategy = 2
+            elif dataset == 'PAMAP2':
+                strategy = 3
 
             """Upsampling, increase the number of positive samples"""
             # Strategy 2: permute randomly each index set at each epoch, and expand x3 minority set
@@ -307,6 +343,8 @@ for missing_ratio in missing_ratios:
                 K0 = n0 // int(batch_size / 2)
                 K1 = expanded_n1 // int(batch_size / 2)
                 n_batches = np.min([K0, K1])
+            elif strategy == 3:
+                n_batches = 30
 
             best_aupr_val = best_auc_val = 0.0
             print('Stop epochs: %d, Batches/epoch: %d, Total batches: %d' % (num_epochs, n_batches, num_epochs * n_batches))
@@ -331,7 +369,6 @@ for missing_ratio in missing_ratios:
                     # I0 = idx_0[p0]
                 """In each epoch, first shuffle the samples, then take the first n_batches*int(batch_size / 2) for training"""
 
-
                 for n in range(n_batches):
                     if strategy == 1:
                         idx = random_sample(idx_0, idx_1, batch_size)
@@ -340,16 +377,23 @@ for missing_ratio in missing_ratios:
                         idx0_batch = I0[n * int(batch_size / 2):(n + 1) * int(batch_size / 2)]
                         idx1_batch = I1[n * int(batch_size / 2):(n + 1) * int(batch_size / 2)]
                         idx = np.concatenate([idx0_batch, idx1_batch], axis=0)
+                    elif strategy == 3:
+                        idx = np.random.choice(list(range(Ptrain_tensor.shape[1])), size=int(batch_size), replace=False)
+                        # idx = random_sample_8(ytrain, batch_size)   # to balance dataset
 
-                    P, Ptime, Pstatic, y = Ptrain_tensor[:, idx, :].cuda(), Ptrain_time_tensor[:, idx].cuda(), \
-                                           Ptrain_static_tensor[idx].cuda(), ytrain_tensor[idx].cuda()
+                    if dataset == 'P12' or dataset == 'P19' or dataset == 'eICU':
+                        P, Ptime, Pstatic, y = Ptrain_tensor[:, idx, :].cuda(), Ptrain_time_tensor[:, idx].cuda(), \
+                                               Ptrain_static_tensor[idx].cuda(), ytrain_tensor[idx].cuda()
+                    elif dataset == 'PAMAP2':
+                        P, Ptime, Pstatic, y = Ptrain_tensor[:, idx, :].cuda(), Ptrain_time_tensor[:, idx].cuda(), \
+                                               None, ytrain_tensor[idx].cuda()
 
                     """Shape [128]. Length means the number of timepoints in each sample, for all samples in this batch"""
                     lengths = torch.sum(Ptime > 0, dim=0)
 
                     """Use two different ways to check the results' consistency"""
                     # outputs = model.forward(P, Pstatic, Ptime, lengths)
-                    outputs = evaluate_standard(model, P, Ptime, Pstatic)
+                    outputs = evaluate_standard(model, P, Ptime, Pstatic, static=static_info)
 
                     # if epoch == 0:
                     #     optimizer.zero_grad()
@@ -361,19 +405,29 @@ for missing_ratio in missing_ratios:
                     loss.backward()
                     optimizer.step()
                 """Training performance"""
-                train_probs = torch.squeeze(torch.sigmoid(outputs))
-                train_probs = train_probs.cpu().detach().numpy()
-                train_probs = np.nan_to_num(train_probs)
+                if dataset == 'P12' or dataset == 'P19' or dataset == 'eICU':
+                    train_probs = torch.squeeze(torch.sigmoid(outputs))
+                    train_probs = train_probs.cpu().detach().numpy()
+                    train_probs = np.nan_to_num(train_probs)
 
-                train_y = y.cpu().detach().numpy()
-                train_auroc = roc_auc_score(train_y, train_probs[:, 1])
-                train_auprc = average_precision_score(train_y, train_probs[:, 1])
+                    train_y = y.cpu().detach().numpy()
+                    train_auroc = roc_auc_score(train_y, train_probs[:, 1])
+                    train_auprc = average_precision_score(train_y, train_probs[:, 1])
+                elif dataset == 'PAMAP2':
+                    train_probs = torch.squeeze(nn.functional.softmax(outputs, dim=1))
+                    # train_probs = torch.squeeze(torch.sigmoid(outputs))
+                    train_probs = train_probs.cpu().detach().numpy()
+                    train_probs = np.nan_to_num(train_probs)
+                    train_y = y.cpu().detach().numpy()
+                    train_auroc = roc_auc_score(one_hot(train_y), train_probs)
+                    train_auprc = average_precision_score(one_hot(train_y), train_probs)
+
                 # print("Train: Epoch %d, train loss:%.4f, train_auprc: %.2f, train_auroc: %.2f" % (
                 # epoch, loss.item(),  train_auprc * 100, train_auroc * 100))
                 if wandb:
                     wandb.log({ "train_loss": loss.item(), "train_auprc": train_auprc, "train_auroc": train_auroc})
-                if epoch == 0 or epoch == num_epochs-1:
-                    print(confusion_matrix(train_y, np.argmax(train_probs, axis=1), labels=[0, 1]))
+                # if epoch == 0 or epoch == num_epochs-1:
+                #     print(confusion_matrix(train_y, np.argmax(train_probs, axis=1), labels=list(range(n_classes))))
                     # train_auc_val = roc_auc_score(y, probs[:, 1])
                     # train_aupr_val = average_precision_score(y, probs[:, 1])
 
@@ -383,15 +437,21 @@ for missing_ratio in missing_ratios:
                 model.eval()
                 if epoch == 0 or epoch % 1 == 0:
                     with torch.no_grad():
-                        out_val = evaluate_standard(model, Pval_tensor, Pval_time_tensor, Pval_static_tensor)
+                        out_val = evaluate_standard(model, Pval_tensor, Pval_time_tensor, Pval_static_tensor, static=static_info)
                         out_val = torch.squeeze(torch.sigmoid(out_val))
                         out_val = out_val.detach().cpu().numpy()
                         out_val = np.nan_to_num(out_val)
 
                         val_loss = criterion(torch.from_numpy(out_val), torch.from_numpy(yval.squeeze(1)).long())
-                        auc_val = roc_auc_score(yval, out_val[:, 1])
-                        aupr_val = average_precision_score(yval, out_val[:, 1])
-                        print("Validataion: Epoch %d,  val_loss:%.4f, aupr_val: %.2f, auc_val: %.2f" % (epoch,
+
+                        if dataset == 'P12' or dataset == 'P19' or dataset == 'eICU':
+                            auc_val = roc_auc_score(yval, out_val[:, 1])
+                            aupr_val = average_precision_score(yval, out_val[:, 1])
+                        elif dataset == 'PAMAP2':
+                            auc_val = roc_auc_score(one_hot(yval), out_val)
+                            aupr_val = average_precision_score(one_hot(yval), out_val)
+
+                        print("Validation: Epoch %d,  val_loss:%.4f, aupr_val: %.2f, auc_val: %.2f" % (epoch,
                           val_loss.item(), aupr_val * 100, auc_val * 100))
                         # print(confusion_matrix(yval, np.argmax(out_val, axis=1),))
 
@@ -421,29 +481,50 @@ for missing_ratio in missing_ratios:
             model.eval()
 
             with torch.no_grad():
-                out_test = evaluate(model, Ptest_tensor, Ptest_time_tensor, Ptest_static_tensor).numpy()
+                out_test = evaluate(model, Ptest_tensor, Ptest_time_tensor, Ptest_static_tensor, n_classes=n_classes, static=static_info).numpy()
                 out_test = np.nan_to_num(out_test)  # if there is nan, convert to 0.
                 ypred = np.argmax(out_test, axis=1)
 
                 denoms = np.sum(np.exp(out_test), axis=1).reshape((-1, 1))
                 probs = np.exp(out_test) / denoms
 
-                auc = roc_auc_score(ytest, probs[:, 1])
-                aupr = average_precision_score(ytest, probs[:, 1])
+                # auc = roc_auc_score(ytest, probs[:, 1])
+                # aupr = average_precision_score(ytest, probs[:, 1])
                 acc = np.sum(ytest.ravel() == ypred.ravel()) / ytest.shape[0]
+
+                if dataset == 'P12' or dataset == 'P19' or dataset == 'eICU':
+                    auc = roc_auc_score(ytest, probs[:, 1])
+                    aupr = average_precision_score(ytest, probs[:, 1])
+                elif dataset == 'PAMAP2':
+                    auc = roc_auc_score(one_hot(ytest), probs)
+                    aupr = average_precision_score(one_hot(ytest), probs)
+                    precision = precision_score(ytest, ypred, average='macro', labels=np.unique(ypred))
+                    recall = recall_score(ytest, ypred, average='macro', labels=np.unique(ypred))
+                    F1 = f1_score(ytest, ypred, average='macro', labels=np.unique(ypred))
+                    print('Testing: Precision = %.2f | Recall = %.2f | F1 = %.2f' % (precision * 100, recall * 100, F1 * 100))
+
                 print('Testing: AUROC = %.2f | AUPRC = %.2f | Accuracy = %.2f' % (auc * 100, aupr * 100, acc * 100))
                 print('classification report', classification_report(ytest, ypred))
-                print(confusion_matrix(ytest, ypred, labels=[0, 1]))
+                print(confusion_matrix(ytest, ypred, labels=list(range(n_classes))))
+
             # store
             acc_arr[k, m] = acc * 100
             auprc_arr[k, m] = aupr * 100
             auroc_arr[k, m] = auc * 100
+            if dataset == 'PAMAP2':
+                precision_arr[k, m] = precision * 100
+                recall_arr[k, m] = recall * 100
+                F1_arr[k, m] = F1 * 100
 
     # pick best performer for each split based on max AUPRC
     idx_max = np.argmax(auprc_arr, axis=1)
     acc_vec = [acc_arr[k, idx_max[k]] for k in range(n_splits)]
     auprc_vec = [auprc_arr[k, idx_max[k]] for k in range(n_splits)]
     auroc_vec = [auroc_arr[k, idx_max[k]] for k in range(n_splits)]
+    if dataset == 'PAMAP2':
+        precision_vec = [precision_arr[k, idx_max[k]] for k in range(n_splits)]
+        recall_vec = [recall_arr[k, idx_max[k]] for k in range(n_splits)]
+        F1_vec = [F1_arr[k, idx_max[k]] for k in range(n_splits)]
 
     print("split type:{}, reverse:{}, using baseline:{}, missing ratio:{}".format(split, reverse, baseline, missing_ratio))
     print('args.dataset, args.splittype, args.reverse, args.withmissingratio, args.feature_removal_level',
@@ -457,7 +538,13 @@ for missing_ratio in missing_ratios:
     print('Accuracy = %.1f +/- %.1f' % (mean_acc, std_acc))
     print('AUPRC    = %.1f +/- %.1f' % (mean_auprc, std_auprc))
     print('AUROC    = %.1f +/- %.1f' % (mean_auroc, std_auroc))
-    print('\nAbove results for missing ratio: %d\n\n\n' % missing_ratio)
+    if dataset == 'PAMAP2':
+        mean_precision, std_precision = np.mean(precision_vec), np.std(precision_vec)
+        mean_recall, std_recall = np.mean(recall_vec), np.std(recall_vec)
+        mean_F1, std_F1 = np.mean(F1_vec), np.std(F1_vec)
+        print('Precision = %.1f +/- %.1f' % (mean_precision, std_precision))
+        print('Recall    = %.1f +/- %.1f' % (mean_recall, std_recall))
+        print('F1        = %.1f +/- %.1f' % (mean_F1, std_F1))
 
     # Mark the run as finished
     if wandb:
