@@ -11,7 +11,7 @@ import models
 import utils
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--niters', type=int, default=200)
+parser.add_argument('--niters', type=int, default=20)
 parser.add_argument('--lr', type=float, default=0.0001)
 parser.add_argument('--rec-hidden', type=int, default=32)
 parser.add_argument('--embed-time', type=int, default=128)
@@ -34,30 +34,33 @@ parser.add_argument('--num-heads', type=int, default=1)
 parser.add_argument('--freq', type=float, default=10.)
 
 
-parser.add_argument('--dataset', type=str, default='P12', choices=['P12', 'P19', 'eICU', 'PAMAP2']) #
-parser.add_argument('--withmissingratio', default=False, help='if True, missing ratio ranges from 0 to 0.5; if False, missing ratio =0') #
-parser.add_argument('--splittype', type=str, default='random', choices=['random', 'age', 'gender'], help='only use for P12 and P19') #
-parser.add_argument('--reverse', default=False, help='if True,use female, older for tarining; if False, use female or younger for training') #
-parser.add_argument('--feature_removal_level', type=str, default='no_removal', choices=['no_removal', 'set', 'sample'],
-                    help='use this only when splittype==random; otherwise, set as no_removal') #
+parser.add_argument('--dataset', type=str, default='P12', choices=['P12', 'P19', 'eICU', 'PAMAP2'])
+parser.add_argument('--withmissingratio', default=True, help='if True, missing ratio ranges from 0 to 0.5; if False, missing ratio =0')
+parser.add_argument('--splittype', type=str, default='random', choices=['random', 'age', 'gender'], help='only use for P12 and P19')
+parser.add_argument('--reverse', default=False, help='if True,use female, older for tarining; if False, use female or younger for training')
+parser.add_argument('--feature_removal_level', type=str, default='set', choices=['no_removal', 'set', 'sample'],
+                    help='use this only when splittype==random; otherwise, set as no_removal')
 
 args = parser.parse_args(args=[])
 
 if __name__ == '__main__':
     """"0 means no missing (full observations); 1.0 means no observation, all missed"""
     if args.withmissingratio:
-       missing_ratios = [0.0, 0.1, 0.2, 0.3, 0.4, 0.5] # if True, with missing ratio
+       missing_ratios = [0.1, 0.2, 0.3, 0.4, 0.5]
     else:
         missing_ratios = [0]
     for missing_ratio in missing_ratios:
         acc_all = []
         auc_all = []
         aupr_all = []
+        precision_all = []
+        recall_all = []
+        F1_all = []
         upsampling_batch = True
 
-        split_type = args.splittype #  'gender'  # possible values: 'random', 'age', 'gender' ('age' not possible for dataset 'eICU')
-        reverse_ = args.reverse # False  True
-        feature_removal_level =  args.feature_removal_level #'set'
+        split_type = args.splittype  # possible values: 'random', 'age', 'gender' ('age' not possible for dataset 'eICU')
+        reverse_ = args.reverse  # False, True
+        feature_removal_level = args.feature_removal_level  # 'sample', 'set'
         num_runs = 5
         for r in range(num_runs):
             experiment_id = int(SystemRandom().random() * 100000)
@@ -69,12 +72,13 @@ if __name__ == '__main__':
             # torch.cuda.manual_seed(seed)
             device = torch.device(
                 'cuda' if torch.cuda.is_available() else 'cpu')
-            print('we are using:{}'.format(device))
+            print('we are using: {}'.format(device))
 
             # device = 'cpu'  # todo
             args.classif = True
             args.niters = 20  # number of epochs
-            dataset = args.dataset #  'eICU'     # possible values: 'P12', 'P19', 'eICU'
+            dataset = args.dataset  # possible values: 'P12', 'P19', 'eICU', 'PAMAP2'
+            print('Dataset used: ', dataset)
 
             data_obj = utils.get_data(args, dataset, device, args.quantization, upsampling_batch, split_type,
                                       feature_removal_level, missing_ratio, reverse=reverse_)
@@ -88,11 +92,16 @@ if __name__ == '__main__':
             val_loader = data_obj["val_dataloader"]
             dim = data_obj["input_dim"]
 
+            if dataset == 'P12' or dataset == 'P19' or dataset == 'eICU':
+                n_classes = 2
+            elif dataset == 'PAMAP2':
+                n_classes = 8
+
             # model
             if args.enc == 'mtan_enc':
                 rec = models.enc_mtan_classif(
-                    dim, torch.linspace(0, 1., 128), args.rec_hidden,
-                    args.embed_time, args.num_heads, args.learn_emb, args.freq, device=device).to(device)
+                    dim, torch.linspace(0, 1., 128), args.rec_hidden, args.embed_time, args.num_heads,
+                    args.learn_emb, args.freq, device=device, n_classes=n_classes).to(device)
 
             elif args.enc == 'mtan_enc_activity':
                 rec = models.enc_mtan_classif_activity(
@@ -147,7 +156,8 @@ if __name__ == '__main__':
                 total_time += time.time() - start_time
 
                 # validation set
-                val_loss, val_acc, val_auc, val_aupr = utils.evaluate_classifier(rec, val_loader, args=args, dim=dim)
+                val_loss, val_acc, val_auc, val_aupr, val_precision, val_recall, val_F1 = \
+                    utils.evaluate_classifier(rec, val_loader, args=args, dim=dim, dataset=dataset)
                 best_val_loss = min(best_val_loss, val_loss)
 
                 print(
@@ -176,13 +186,18 @@ if __name__ == '__main__':
 
             # test set
             rec = torch.load(saved_model_path)
-            test_loss, test_acc, test_auc, test_aupr = utils.evaluate_classifier(rec, test_loader, args=args, dim=dim)
+            test_loss, test_acc, test_auc, test_aupr, test_precision, test_recall, test_F1 = \
+                utils.evaluate_classifier(rec, test_loader, args=args, dim=dim, dataset=dataset)
             print("TEST: test_acc: %.2f, aupr_test: %.2f, auc_test: %.2f\n" % (
             test_acc * 100, test_aupr * 100, test_auc * 100))
 
             acc_all.append(test_acc * 100)
             auc_all.append(test_auc * 100)
             aupr_all.append(test_aupr * 100)
+            if dataset == 'PAMAP2':
+                precision_all.append(test_precision * 100)
+                recall_all.append(test_recall * 100)
+                F1_all.append(test_F1 * 100)
 
             # print(best_val_loss)
             # print(total_time)
@@ -193,8 +208,15 @@ if __name__ == '__main__':
         mean_auc, std_auc = np.mean(auc_all), np.std(auc_all)
         mean_aupr, std_aupr = np.mean(aupr_all), np.std(aupr_all)
         print('------------------------------------------')
-        print(
-            "split:{}, set/sample-level: {}, missing ratio:{}".format(split_type, feature_removal_level, missing_ratio))
+        print("split:{}, set/sample-level: {}, missing ratio:{}".format(split_type, feature_removal_level, missing_ratio))
         print('Accuracy = %.1f +/- %.1f' % (mean_acc, std_acc))
         print('AUROC    = %.1f +/- %.1f' % (mean_auc, std_auc))
         print('AUPRC    = %.1f +/- %.1f' % (mean_aupr, std_aupr))
+        if dataset == 'PAMAP2':
+            precision_all, recall_all, F1_all = np.array(precision_all), np.array(recall_all), np.array(F1_all)
+            mean_precision, std_precision = np.mean(precision_all), np.std(precision_all)
+            mean_recall, std_recall = np.mean(recall_all), np.std(recall_all)
+            mean_F1, std_F1 = np.mean(F1_all), np.std(F1_all)
+            print('Precision = %.1f +/- %.1f' % (mean_precision, std_precision))
+            print('Recall    = %.1f +/- %.1f' % (mean_recall, std_recall))
+            print('F1        = %.1f +/- %.1f' % (mean_F1, std_F1))

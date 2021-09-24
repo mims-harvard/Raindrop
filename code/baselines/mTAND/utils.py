@@ -8,6 +8,7 @@ import numpy as np
 from physionet import PhysioNet, get_data_min_max, variable_time_collate_fn2
 from sklearn import model_selection
 from sklearn import metrics
+from sklearn.metrics import precision_score, recall_score, f1_score
 from person_activity import PersonActivity
 
 
@@ -112,7 +113,7 @@ def compute_losses(dim, dec_train_batch, qz0_mean, qz0_logvar, pred_x, args, dev
 
 
 def evaluate_classifier(model, test_loader, dec=None, args=None, classifier=None,
-                        dim=41, device='cuda', reconst=False, num_sample=1):   # todo
+                        dim=41, device='cuda', reconst=False, num_sample=1, dataset='P12'):   # todo
     pred = []
     true = []
     test_loss = 0
@@ -154,13 +155,21 @@ def evaluate_classifier(model, test_loader, dec=None, args=None, classifier=None
     true = np.concatenate(true, 0)
 
     acc = np.mean(pred.argmax(1) == true)
-    auc = metrics.roc_auc_score(true, pred[:, 1]) if not args.classify_pertp else 0.
-    aupr = average_precision_score(true, pred[:, 1]) if not args.classify_pertp else 0.
 
     # print('Non-zero predictions = ', np.count_nonzero(np.argmax(pred, axis=1)))
     # print(confusion_matrix(true, np.argmax(pred, axis=1), labels=[0, 1]))
 
-    return test_loss/pred.shape[0], acc, auc, aupr
+    if dataset == 'P12' or dataset == 'P19' or dataset == 'eICU':
+        auc = metrics.roc_auc_score(true, pred[:, 1]) if not args.classify_pertp else 0.
+        aupr = average_precision_score(true, pred[:, 1]) if not args.classify_pertp else 0.
+        return test_loss / pred.shape[0], acc, auc, aupr, None, None, None
+    elif dataset == 'PAMAP2':
+        auc = metrics.roc_auc_score(true, pred) if not args.classify_pertp else 0.
+        aupr = average_precision_score(true, pred) if not args.classify_pertp else 0.
+        precision = precision_score(true, pred, average='macro', labels=np.unique(pred)) if not args.classify_pertp else 0.
+        recall = recall_score(true, pred, average='macro', labels=np.unique(pred)) if not args.classify_pertp else 0.
+        F1 = f1_score(true, pred, average='macro', labels=np.unique(pred)) if not args.classify_pertp else 0.
+        return test_loss/pred.shape[0], acc, auc, aupr, precision, recall, F1
 
 
 def get_mimiciii_data(args):
@@ -339,6 +348,35 @@ def preprocess_eICU(PT_dict, arr_outcomes, labels_ts):
     return total
 
 
+def preprocess_PAMAP2(PT_dict, arr_outcomes):
+    length = 600
+    total = []
+    for i, patient in enumerate(PT_dict):
+        record_id = str(i)
+        tt = torch.tensor(list(range(length)))
+        vals = torch.tensor(patient, dtype=torch.float32)
+        m = np.zeros(shape=patient.shape)
+        m[patient.nonzero()] = 1
+        mask = torch.tensor(m, dtype=torch.float32)
+        outcome = torch.tensor(arr_outcomes[i][0], dtype=torch.float32)
+        total.append((record_id, tt, vals, mask, outcome))
+    return total
+
+
+def random_sample_8(ytrain, B, replace=False):
+    """ Returns a balanced sample of tensors by randomly sampling without replacement. """
+    idx0_batch = np.random.choice(np.where(ytrain == 0)[0], size=int(B / 8), replace=replace)
+    idx1_batch = np.random.choice(np.where(ytrain == 1)[0], size=int(B / 8), replace=replace)
+    idx2_batch = np.random.choice(np.where(ytrain == 2)[0], size=int(B / 8), replace=replace)
+    idx3_batch = np.random.choice(np.where(ytrain == 3)[0], size=int(B / 8), replace=replace)
+    idx4_batch = np.random.choice(np.where(ytrain == 4)[0], size=int(B / 8), replace=replace)
+    idx5_batch = np.random.choice(np.where(ytrain == 5)[0], size=int(B / 8), replace=replace)
+    idx6_batch = np.random.choice(np.where(ytrain == 6)[0], size=int(B / 8), replace=replace)
+    idx7_batch = np.random.choice(np.where(ytrain == 7)[0], size=int(B / 8), replace=replace)
+    idx = np.concatenate([idx0_batch, idx1_batch, idx2_batch, idx3_batch, idx4_batch, idx5_batch, idx6_batch, idx7_batch], axis=0)
+    return idx
+
+
 def get_data(args, dataset, device, q, upsampling_batch, split_type, feature_removal_level, missing_ratio, flag=1, reverse=False):
     if dataset == 'P12':
         train_dataset_obj_1 = PhysioNet('data/physionet', train=True,
@@ -416,6 +454,12 @@ def get_data(args, dataset, device, q, upsampling_batch, split_type, feature_rem
 
         total_dataset = preprocess_eICU(PT_dict, arr_outcomes, labels_ts)
 
+    elif dataset == 'PAMAP2':
+        PT_dict = np.load('../../../PAMAP2data/processed_data/PTdict_list.npy', allow_pickle=True)
+        arr_outcomes = np.load('../../../PAMAP2data/processed_data/arr_outcomes.npy', allow_pickle=True)
+
+        total_dataset = preprocess_PAMAP2(PT_dict, arr_outcomes)
+
     # if not args.classif:
     #     # Concatenate samples from original Train and Test sets
     #     # Only 'training' physionet samples are have labels.
@@ -479,6 +523,8 @@ def get_data(args, dataset, device, q, upsampling_batch, split_type, feature_rem
                 num_all_features = 34
             elif dataset == 'eICU':
                 num_all_features = 14
+            elif dataset == 'PAMAP2':
+                num_all_features = 17
 
             num_missing_features = round(missing_ratio * num_all_features)
             if feature_removal_level == 'sample':
@@ -501,18 +547,23 @@ def get_data(args, dataset, device, q, upsampling_batch, split_type, feature_rem
                     dict_params = train_dataset_obj_1.params_dict
                     # density_scores_names = np.load('density_scores.npy', allow_pickle=True)[:, 2]
                     density_scores_names = np.load('IG_density_scores_P12.npy', allow_pickle=True)[:, 1]
+                    idx = [dict_params[name] for name in density_scores_names[:num_missing_features]]
                 elif dataset == 'P19':
                     labels_ts = np.load('../../../P19data/processed_data/labels_ts.npy', allow_pickle=True)
                     dict_params = {label: i for i, label in enumerate(labels_ts[:-1])}
                     # density_scores_names = np.load('P19_density_scores.npy', allow_pickle=True)[:, 2]
                     density_scores_names = np.load('IG_density_scores_P19.npy', allow_pickle=True)[:, 1]
+                    idx = [dict_params[name] for name in density_scores_names[:num_missing_features]]
                 elif dataset == 'eICU':
                     labels_ts = np.load('../../../eICUdata/processed_data/eICU_ts_vars.npy', allow_pickle=True)
                     dict_params = {label: i for i, label in enumerate(labels_ts)}
                     # density_scores_names = np.load('eICU_density_scores.npy', allow_pickle=True)[:, 2]
                     density_scores_names = np.load('IG_density_scores_eICU.npy', allow_pickle=True)[:, 1]
+                    idx = [dict_params[name] for name in density_scores_names[:num_missing_features]]
+                elif dataset == 'PAMAP2':
+                    density_scores_indices = np.load('IG_density_scores_PAMAP2.npy', allow_pickle=True)[:, 0]
+                    idx = list(map(int, density_scores_indices[:num_missing_features]))
 
-                idx = [dict_params[name] for name in density_scores_names[:num_missing_features]]
                 for i, tpl in enumerate(val_data):
                     _, _, values, _, _ = tpl
                     tpl = list(tpl)
@@ -529,12 +580,18 @@ def get_data(args, dataset, device, q, upsampling_batch, split_type, feature_rem
             if upsampling_batch:
                 train_data_upsamled = []
                 true_labels = np.array(list(map(lambda x: float(x[7]), np.array(train_data)[:, 4])))
-                idx_0 = np.where(true_labels == 0)[0]
-                idx_1 = np.where(true_labels == 1)[0]
-                for _ in range(len(true_labels) // batch_size):
-                    indices = random_sample(idx_0, idx_1, batch_size)
-                    for i in indices:
-                        train_data_upsamled.append(train_data[i])
+                if dataset == 'P12' or dataset == 'P19' or dataset == 'eICU':   # 2 classes
+                    idx_0 = np.where(true_labels == 0)[0]
+                    idx_1 = np.where(true_labels == 1)[0]
+                    for _ in range(len(true_labels) // batch_size):
+                        indices = random_sample(idx_0, idx_1, batch_size)
+                        for i in indices:
+                            train_data_upsamled.append(train_data[i])
+                elif dataset == 'PAMAP2':   # 8 classes
+                    for b in range(len(true_labels) // batch_size):
+                        indices = random_sample_8(true_labels, batch_size)
+                        for i in indices:
+                            train_data_upsamled.append(train_data[i])
                 train_data = train_data_upsamled
 
             test_data_combined = variable_time_collate_fn(test_data, device, classify=args.classif, data_min=data_min, data_max=data_max)

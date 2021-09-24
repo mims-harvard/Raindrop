@@ -179,7 +179,7 @@ class dec_mtan_rnn(nn.Module):
 class enc_mtan_classif(nn.Module):
  
     def __init__(self, input_dim, query, nhidden=16, 
-                 embed_time=16, num_heads=1, learn_emb=True, freq=10., device='cpu'):   # todo
+                 embed_time=16, num_heads=1, learn_emb=True, freq=10., device='cpu', n_classes=2):   # todo
         super(enc_mtan_classif, self).__init__()
         assert embed_time % num_heads == 0
         self.freq = freq
@@ -195,7 +195,7 @@ class enc_mtan_classif(nn.Module):
             nn.ReLU(),
             nn.Linear(300, 300),
             nn.ReLU(),
-            nn.Linear(300, 2))
+            nn.Linear(300, n_classes))
         self.enc = nn.GRU(nhidden, nhidden)
         if learn_emb:
             self.periodic = nn.Linear(1, embed_time-1)
