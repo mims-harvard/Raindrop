@@ -21,7 +21,7 @@ parser.add_argument('--fname', type=str, default=None)
 parser.add_argument('--seed', type=int, default=0)
 parser.add_argument('--split', type=int, default=0)
 parser.add_argument('--n', type=int, default=8000)
-parser.add_argument('--batch-size', type=int, default=128)
+parser.add_argument('--batch-size', type=int, default=128) # 128
 parser.add_argument('--quantization', type=float, default=0.016,
                     help="Quantization on the physionet dataset.")
 parser.add_argument('--classif', default=True, action='store_true',
@@ -34,8 +34,8 @@ parser.add_argument('--num-heads', type=int, default=1)
 parser.add_argument('--freq', type=float, default=10.)
 
 
-parser.add_argument('--dataset', type=str, default='P12', choices=['P12', 'P19', 'eICU', 'PAMAP2'])
-parser.add_argument('--withmissingratio', default=True, help='if True, missing ratio ranges from 0 to 0.5; if False, missing ratio =0')
+parser.add_argument('--dataset', type=str, default='PAMAP2', choices=['P12', 'P19', 'eICU', 'PAMAP2'])
+parser.add_argument('--withmissingratio', default=False, help='if True, missing ratio ranges from 0 to 0.5; if False, missing ratio =0')
 parser.add_argument('--splittype', type=str, default='random', choices=['random', 'age', 'gender'], help='only use for P12 and P19')
 parser.add_argument('--reverse', default=False, help='if True,use female, older for tarining; if False, use female or younger for training')
 parser.add_argument('--feature_removal_level', type=str, default='set', choices=['no_removal', 'set', 'sample'],
@@ -46,7 +46,7 @@ args = parser.parse_args(args=[])
 if __name__ == '__main__':
     """"0 means no missing (full observations); 1.0 means no observation, all missed"""
     if args.withmissingratio:
-       missing_ratios = [0.1, 0.2, 0.3, 0.4, 0.5]
+        missing_ratios = [0.1, 0.2, 0.3, 0.4, 0.5]
     else:
         missing_ratios = [0]
     for missing_ratio in missing_ratios:
@@ -160,10 +160,12 @@ if __name__ == '__main__':
                     utils.evaluate_classifier(rec, val_loader, args=args, dim=dim, dataset=dataset)
                 best_val_loss = min(best_val_loss, val_loss)
 
+
                 print(
-                    'VALIDATION: Iter: {}, loss: {:.4f}, acc: {:.4f}, val_loss: {:.4f}, val_acc: {:.2f}, val_AUROC: {:.2f}, val_AUPRC: {:.2f}'
+                    'VALIDATION: Iter: {}, loss: {:.4f}, acc: {:.4f}, val_loss: {:.4f}, val_acc: {:.2f}, val_AUROC: {:.2f}, '
+                    'val_AUPRC: {:.2f}, val_precision: {:.2f},val_recall: {:.2f},val_F1: {:.2f},'
                     .format(itr, train_loss / train_n, train_acc / train_n, val_loss, val_acc * 100, val_auc * 100,
-                            val_aupr * 100))
+                            val_aupr * 100, val_precision* 100, val_recall* 100, val_F1* 100))
 
                 # save the best model based on 'aupr'
                 if val_aupr > best_aupr_val:
@@ -188,8 +190,8 @@ if __name__ == '__main__':
             rec = torch.load(saved_model_path)
             test_loss, test_acc, test_auc, test_aupr, test_precision, test_recall, test_F1 = \
                 utils.evaluate_classifier(rec, test_loader, args=args, dim=dim, dataset=dataset)
-            print("TEST: test_acc: %.2f, aupr_test: %.2f, auc_test: %.2f\n" % (
-            test_acc * 100, test_aupr * 100, test_auc * 100))
+            print("TEST: test_acc: %.2f, aupr_test: %.2f, auc_test: %.2f, auc_precision: %.2f, auc_recall: %.2f, auc_F1: %.2f\n" % (
+            test_acc * 100, test_aupr * 100, test_auc * 100, test_precision* 100, test_recall* 100, test_F1* 100))
 
             acc_all.append(test_acc * 100)
             auc_all.append(test_auc * 100)
@@ -209,6 +211,8 @@ if __name__ == '__main__':
         mean_aupr, std_aupr = np.mean(aupr_all), np.std(aupr_all)
         print('------------------------------------------')
         print("split:{}, set/sample-level: {}, missing ratio:{}".format(split_type, feature_removal_level, missing_ratio))
+        print('args.dataset, args.splittype, args.reverse, args.withmissingratio, args.feature_removal_level',
+              args.dataset, args.splittype, args.reverse, args.withmissingratio, args.feature_removal_level)
         print('Accuracy = %.1f +/- %.1f' % (mean_acc, std_acc))
         print('AUROC    = %.1f +/- %.1f' % (mean_auc, std_auc))
         print('AUPRC    = %.1f +/- %.1f' % (mean_aupr, std_aupr))

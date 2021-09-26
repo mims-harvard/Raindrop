@@ -176,10 +176,10 @@ def evaluate_classifier(model, test_loader, dec=None, args=None, classifier=None
         auc = metrics.roc_auc_score(one_hot(true), pred) if not args.classify_pertp else 0.
 #         aupr = average_precision_score(true, pred) if not args.classify_pertp else 0.
         aupr = average_precision_score(one_hot(true), pred) if not args.classify_pertp else 0.
-        print(true.shape, pred.shape, true[0], pred[0])
+        # print(true.shape, pred.shape, true[0], pred[0])
         precision = precision_score(true, pred.argmax(1), average='macro', ) if not args.classify_pertp else 0.
         recall = recall_score(true, pred.argmax(1), average='macro', ) if not args.classify_pertp else 0.
-#         F1 = f1_score(true, pred.argmax(1), average='macro', labels=np.unique(pred)) if not args.classify_pertp else 0.
+        # F1 = f1_score(true, pred.argmax(1), average='macro', labels=np.unique(pred)) if not args.classify_pertp else 0.
         F1 = 2 * (precision * recall) / (precision + recall) if not args.classify_pertp else 0.
         return test_loss/pred.shape[0], acc, auc, aupr, precision, recall, F1
 
@@ -521,7 +521,7 @@ def get_data(args, dataset, device, q, upsampling_batch, split_type, feature_rem
     input_dim = vals.size(-1)
     data_min, data_max = get_data_min_max(total_dataset, device)
     # batch_size = min(min(len(train_dataset_obj_1), args.batch_size), args.n)
-    batch_size = 128
+    batch_size =   128 # 128
     if flag:
         if args.classif:
             if split_type == 'random':
