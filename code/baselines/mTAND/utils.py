@@ -179,7 +179,8 @@ def evaluate_classifier(model, test_loader, dec=None, args=None, classifier=None
         print(true.shape, pred.shape, true[0], pred[0])
         precision = precision_score(true, pred.argmax(1), average='macro', ) if not args.classify_pertp else 0.
         recall = recall_score(true, pred.argmax(1), average='macro', ) if not args.classify_pertp else 0.
-        F1 = f1_score(true, pred.argmax(1), average='macro', labels=np.unique(pred)) if not args.classify_pertp else 0.
+#         F1 = f1_score(true, pred.argmax(1), average='macro', labels=np.unique(pred)) if not args.classify_pertp else 0.
+        F1 = 2 * (precision * recall) / (precision + recall) if not args.classify_pertp else 0.
         return test_loss/pred.shape[0], acc, auc, aupr, precision, recall, F1
 
 
