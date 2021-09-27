@@ -74,48 +74,49 @@ def diffuse(unit, N=10):
     return torch.max(unit, dim=-1).values
 
 
-def generate_global_structure_diffuse(data, K=10, dataset ='P12'):
-    if dataset == 'P12':
-        n_features = 36
-    elif dataset == 'P19':
-        n_features = 34
-    elif dataset == 'eICU':
-        n_features = 14
-
-    observations = data[:, :, :n_features]
-    cos_sim = torch.zeros([observations.shape[0], n_features, n_features])
-
-    # overlap = torch.zeros([observations.shape[0], n_features, n_features])
-    for row in tqdm(range(observations.shape[0])):
-        unit = observations[row].T  # unit.shape [36, 215]
-        unit = diffuse(unit, N=10)  # diffuse the values into N-near following steps
-
-        cos_sim_unit = cosine_similarity(unit)  # shape: (9590, 9590)
-        cos_sim[row] = torch.from_numpy(cos_sim_unit)
-
-    ave_sim = torch.mean(cos_sim, dim=0)
-
-    ave_sim[ave_sim<0.1] = 0  # set threshold, only keep the similar nodes
-    global_structure = ave_sim
-
-    # # Find the top K neighbors and softmax
-    # index = torch.argsort(ave_sim, dim=0)
-    # index_K = index < K  # K=10
-    # global_structure = index_K * ave_sim  #
-    # # global_structure = masked_softmax(global_structure)  # softmax while mask out zero values, this will
-    return global_structure
+# def generate_global_structure_diffuse(data, K=10, dataset ='P12'):
+#     if dataset == 'P12':
+#         n_features = 36
+#     elif dataset == 'P19':
+#         n_features = 34
+#     elif dataset == 'eICU':
+#         n_features = 14
+#
+#
+#     observations = data[:, :, :n_features]
+#     cos_sim = torch.zeros([observations.shape[0], n_features, n_features])
+#
+#     # overlap = torch.zeros([observations.shape[0], n_features, n_features])
+#     for row in tqdm(range(observations.shape[0])):
+#         unit = observations[row].T  # unit.shape [36, 215]
+#         unit = diffuse(unit, N=10)  # diffuse the values into N-near following steps
+#
+#         cos_sim_unit = cosine_similarity(unit)  # shape: (9590, 9590)
+#         cos_sim[row] = torch.from_numpy(cos_sim_unit)
+#
+#     ave_sim = torch.mean(cos_sim, dim=0)
+#
+#     ave_sim[ave_sim<0.1] = 0  # set threshold, only keep the similar nodes
+#     global_structure = ave_sim
+#
+#     # # Find the top K neighbors and softmax
+#     # index = torch.argsort(ave_sim, dim=0)
+#     # index_K = index < K  # K=10
+#     # global_structure = index_K * ave_sim  #
+#     # # global_structure = masked_softmax(global_structure)  # softmax while mask out zero values, this will
+#     return global_structure
 
 torch.manual_seed(1)
 
 import argparse
 parser = argparse.ArgumentParser()
-parser.add_argument('--dataset', type=str, default='P19', choices=['P12', 'P19', 'eICU', 'PAMAP2']) #
+parser.add_argument('--dataset', type=str, default='PAMAP2', choices=['P12', 'P19', 'eICU', 'PAMAP2']) #
 parser.add_argument('--withmissingratio', default=False, help='if True, missing ratio ranges from 0 to 0.5; if False, missing ratio =0') #
-parser.add_argument('--splittype', type=str, default='gender', choices=['random', 'age', 'gender'], help='only use for P12 and P19')
-parser.add_argument('--reverse', default=True, help='if True, use female, older for training; if False, use female or younger for training') #
+parser.add_argument('--splittype', type=str, default='random', choices=['random', 'age', 'gender'], help='only use for P12 and P19')
+parser.add_argument('--reverse', default=False, help='if True,use female, older for tarining; if False, use female or younger for training') #
 parser.add_argument('--feature_removal_level', type=str, default='set', choices=['no_removal', 'set', 'sample'],
                     help='use this only when splittype==random; otherwise, set as no_removal') #
-# args = parser.parse_args() #args=[]
+
 args, unknown = parser.parse_known_args()
 
 
@@ -364,7 +365,7 @@ for missing_ratio in missing_ratios:
                 #     dataset_prefix = 'eICU_'
                 #     density_score_indices = np.array([13, 12, 0, 2, 1, 10, 11, 4, 3, 9, 8, 5, 6, 7])
 
-                density_score_indices = np.load('saved/IG_density_scores_' + dataset + '.npy', allow_pickle=True)[:, 0]
+                density_score_indices = np.load('./baselines/saved/IG_density_scores_' + dataset + '.npy', allow_pickle=True)[:, 0]
                 # num_missing_features = num_missing_features * 2
                 idx = density_score_indices[:num_missing_features].astype(int)
                 Pval_tensor[:, :, idx] = torch.zeros(Pval_tensor.shape[0], Pval_tensor.shape[1], num_missing_features)  # values
@@ -427,7 +428,7 @@ for missing_ratio in missing_ratios:
             expanded_idx_1 = np.concatenate([idx_1, idx_1, idx_1], axis=0)
             expanded_n1 = len(expanded_idx_1)
 
-            batch_size = 128  # balanced batch size
+            batch_size =  128  # balanced batch size
             if strategy == 1:
                 n_batches = 10  # number of batches to process per epoch
             elif strategy == 2:

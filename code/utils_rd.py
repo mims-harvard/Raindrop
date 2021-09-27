@@ -1,7 +1,4 @@
-# Utility functions
-#
-# Author: Theodoros Tsiligkaridis
-# Last updated: April 26 2021
+
 import numpy as np
 
 import torch
@@ -115,23 +112,23 @@ def get_data_split(base_path, split_path, split_type='random', reverse=False, ba
             if height > 0 and weight > 0:
                 all_BMI.append(weight / ((height / 100) ** 2))
 
-        # plot statistics
-        plt.hist(all_ages, bins=[i * 10 for i in range(12)])
-        plt.xlabel('Years')
-        plt.ylabel('# people')
-        plt.title('Histogram of patients ages, age known in %d samples.\nMean: %.1f, Std: %.1f, Median: %.1f' %
-                  (len(all_ages), np.mean(np.array(all_ages)), np.std(np.array(all_ages)), np.median(np.array(all_ages))))
-        plt.show()
-
-        plt.hist(all_BMI, bins=[5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60])
-        all_BMI = np.array(all_BMI)
-        all_BMI = all_BMI[(all_BMI > 10) & (all_BMI < 65)]
-        plt.xlabel('BMI')
-        plt.ylabel('# people')
-        plt.title('Histogram of patients BMI, height and weight known in %d samples.\nMean: %.1f, Std: %.1f, Median: %.1f' %
-                  (len(all_BMI), np.mean(all_BMI), np.std(all_BMI), np.median(all_BMI)))
-        plt.show()
-        print('\nGender known: %d,  Male count: %d,  Female count: %d\n' % (male_count + female_count, male_count, female_count))
+        # # plot statistics
+        # plt.hist(all_ages, bins=[i * 10 for i in range(12)])
+        # plt.xlabel('Years')
+        # plt.ylabel('# people')
+        # plt.title('Histogram of patients ages, age known in %d samples.\nMean: %.1f, Std: %.1f, Median: %.1f' %
+        #           (len(all_ages), np.mean(np.array(all_ages)), np.std(np.array(all_ages)), np.median(np.array(all_ages))))
+        # plt.show()
+        #
+        # plt.hist(all_BMI, bins=[5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60])
+        # all_BMI = np.array(all_BMI)
+        # all_BMI = all_BMI[(all_BMI > 10) & (all_BMI < 65)]
+        # plt.xlabel('BMI')
+        # plt.ylabel('# people')
+        # plt.title('Histogram of patients BMI, height and weight known in %d samples.\nMean: %.1f, Std: %.1f, Median: %.1f' %
+        #           (len(all_BMI), np.mean(all_BMI), np.std(all_BMI), np.median(all_BMI)))
+        # plt.show()
+        # print('\nGender known: %d,  Male count: %d,  Female count: %d\n' % (male_count + female_count, male_count, female_count))
 
     # np.save('saved/idx_under_65.npy', np.array(idx_under_65), allow_pickle=True)
     # np.save('saved/idx_over_65.npy', np.array(idx_over_65), allow_pickle=True)
@@ -191,6 +188,7 @@ def get_data_split(base_path, split_path, split_type='random', reverse=False, ba
     Ptest = Pdict_list[idx_test]
 
     # extract mortality labels
+    # if dataset == 'P12' or dataset == 'P19':
     if dataset == 'P12' or dataset == 'P19' or dataset == 'PAMAP2':
         y = arr_outcomes[:, -1].reshape((-1, 1))
     elif dataset == 'eICU':
@@ -382,6 +380,7 @@ def tensorize_normalize(P, y, mf, stdf, ms, ss):
     P_tensor = mask_normalize(P_tensor, mf, stdf)
     P_tensor = torch.Tensor(P_tensor)
 
+
     P_time = torch.Tensor(P_time) / 60.0  # convert mins to hours
     P_static_tensor = mask_normalize_static(P_static_tensor, ms, ss)
     P_static_tensor = torch.Tensor(P_static_tensor)
@@ -389,7 +388,6 @@ def tensorize_normalize(P, y, mf, stdf, ms, ss):
     y_tensor = y  # y is the mortality label
     y_tensor = torch.Tensor(y_tensor[:, 0]).type(torch.LongTensor)  # change type to LongTensor, shape: [960]
     return P_tensor, P_static_tensor, P_time, y_tensor
-
 
 def tensorize_normalize_other(P, y, mf, stdf):
     T, F = P[0].shape
@@ -407,7 +405,6 @@ def tensorize_normalize_other(P, y, mf, stdf):
     y_tensor = torch.Tensor(y_tensor[:, 0]).type(torch.LongTensor)  # change type to LongTensor, shape: [960]
     return P_tensor, None, P_time, y_tensor
 
-
 def masked_softmax(A, epsilon=0.000000001):
     # matrix A is the one you want to do mask softmax at dim=1
     A_max = torch.max(A, dim=1, keepdim=True)[0]
@@ -423,36 +420,6 @@ def random_sample(idx_0, idx_1, B, replace=False):
     idx1_batch = np.random.choice(idx_1, size=int(B / 2), replace=replace)
     idx = np.concatenate([idx0_batch, idx1_batch], axis=0)
     return idx
-
-
-# def evaluate(model, P_tensor, P_time_tensor, P_static_tensor, batch_size=100, n_classes=2):
-#     model.eval()
-#     P_tensor = P_tensor.cuda()
-#     P_time_tensor = P_time_tensor.cuda()
-#     P_static_tensor = P_static_tensor.cuda()
-#
-#     T, N, Ff = P_tensor.shape
-#     N, Fs = P_static_tensor.shape
-#     n_batches, rem = N // batch_size, N % batch_size
-#
-#     out = torch.zeros(N, n_classes)
-#     start = 0
-#     for i in range(n_batches):
-#         P = P_tensor[:, start:start + batch_size, :]
-#         Ptime = P_time_tensor[:, start:start + batch_size]
-#         Pstatic = P_static_tensor[start:start + batch_size]
-#         lengths = torch.sum(Ptime > 0, dim=0)
-#         middleoutput, _, _ = model.forward(P, Pstatic, Ptime, lengths)
-#         out[start:start + batch_size] = middleoutput.detach().cpu()
-#         start += batch_size
-#     if rem > 0:
-#         P = P_tensor[:, start:start + rem, :]
-#         Ptime = P_time_tensor[:, start:start + rem]
-#         Pstatic = P_static_tensor[start:start + rem]
-#         lengths = torch.sum(Ptime > 0, dim=0)
-#         whatever, _,  _ = model.forward(P, Pstatic, Ptime, lengths)
-#         out[start:start + rem] = whatever.detach().cpu()
-#     return out
 
 
 def evaluate(model, P_tensor, P_time_tensor, P_static_tensor, batch_size=100, n_classes=2, static=1):
