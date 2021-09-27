@@ -17,10 +17,10 @@ import itertools
 import numbers
 import torch.utils.data as utils
 import matplotlib.pyplot as plt
-from sklearn.metrics import roc_curve, auc, roc_auc_score, confusion_matrix
+from sklearn.metrics import roc_curve, auc, roc_auc_score, confusion_matrix, precision_score, recall_score, f1_score
 from sklearn.metrics import average_precision_score
 from utils_baselines import random_sample
-
+from PAMAP2_dataset import one_hot
 
 
 def count_parameters(model):
@@ -196,6 +196,9 @@ def data_dataloader(dataset, outcomes, upsampling_batch, batch_size, split_type,
         elif dataset_name == 'eICU':
             density_scores = np.load('saved/IG_density_scores_eICU.npy', allow_pickle=True)
             idx = list(map(int, density_scores[:, 0][:num_missing_features]))
+        elif dataset_name == 'PAMAP2':
+            density_scores = np.load('saved/IG_density_scores_PAMAP2.npy', allow_pickle=True)
+            idx = list(map(int, density_scores[:, 0][:num_missing_features]))
 
         dev_data[:, :, idx, :] = np.zeros(shape=(dev_data.shape[0], dev_data.shape[1], len(idx), dev_data.shape[3]))
         test_data[:, :, idx, :] = np.zeros(shape=(test_data.shape[0], test_data.shape[1], len(idx), test_data.shape[3]))
@@ -229,6 +232,9 @@ def train_gru_d(num_runs, input_size, hidden_size, output_size, num_layers, drop
     acc_all = []
     auc_all = []
     aupr_all = []
+    precision_all = []
+    recall_all = []
+    F1_all = []
 
     for r in range(num_runs):
         if dataset == 'P12':
@@ -240,6 +246,9 @@ def train_gru_d(num_runs, input_size, hidden_size, output_size, num_layers, drop
         elif dataset == 'eICU':
             t_dataset = np.load('saved/eICU_dataset.npy')
             t_out = np.load('saved/eICU_y1_out.npy')
+        elif dataset == 'PAMAP2':
+            t_dataset = np.load('saved/PAMAP2_dataset.npy')
+            t_out = np.load('saved/PAMAP2_y1_out.npy')
 
         if r == 0:
             print(t_dataset.shape, t_out.shape)
@@ -250,10 +259,16 @@ def train_gru_d(num_runs, input_size, hidden_size, output_size, num_layers, drop
                                                                             dataset_name=dataset)
         if dataset == 'P12':
             x_mean = torch.Tensor(np.load('saved/x_mean_aft_nor.npy'))
+            n_classes = 2
         elif dataset == 'P19':
             x_mean = torch.Tensor(np.load('saved/P19_x_mean_aft_nor.npy'))
+            n_classes = 2
         elif dataset == 'eICU':
             x_mean = torch.Tensor(np.load('saved/eICU_x_mean_aft_nor.npy'))
+            n_classes = 2
+        elif dataset == 'PAMAP2':
+            x_mean = torch.Tensor(np.load('saved/PAMAP2_x_mean_aft_nor.npy'))
+            n_classes = 8
         print(x_mean.shape)
         # x_median = torch.Tensor(np.load('saved/x_median_aft_nor.npy'))
 
@@ -270,7 +285,10 @@ def train_gru_d(num_runs, input_size, hidden_size, output_size, num_layers, drop
         for key in model.state_dict():
             old_state_dict[key] = model.state_dict()[key].clone()
 
-        criterion = torch.nn.BCELoss()
+        if dataset == 'P12' or dataset == 'P19' or dataset == 'eICU':
+            criterion = torch.nn.BCELoss()
+        elif dataset == 'PAMAP2':
+            criterion = torch.nn.CrossEntropyLoss()
         optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=0.1,
                                                                patience=1, threshold=0.0001, threshold_mode='rel',
@@ -293,28 +311,46 @@ def train_gru_d(num_runs, input_size, hidden_size, output_size, num_layers, drop
                 # train_label = torch.squeeze(train_label)
                 train_label = torch.squeeze(train_label, dim=0)
 
-                # Forward pass : Compute predicted y by passing train data to the model
-                y_pred = model(train_data)
+                if dataset == 'P12' or dataset == 'P19' or dataset == 'eICU':
+                    # Forward pass : Compute predicted y by passing train data to the model
+                    y_pred = model(train_data)
 
-                #print(y_pred.shape)
-                #print(train_label.shape)
+                    # Save predict and label
+                    y_pred_col.append(y_pred.item())
+                    pred.append(y_pred.item() > 0.5)
+                    label.append(train_label.item())
 
-                # Save predict and label
-                y_pred_col.append(y_pred.item())
-                pred.append(y_pred.item() > 0.5)
-                label.append(train_label.item())
+                    # print('y_pred: {}\t label: {}'.format(y_pred, train_label))
 
-                #print('y_pred: {}\t label: {}'.format(y_pred, train_label))
+                    # Compute loss
+                    loss = criterion(y_pred, train_label)
+                    acc.append(
+                        torch.eq(
+                            # (torch.sigmoid(y_pred).data > 0.5).float(),   # sigmoid is already in 'forward' function
+                            (y_pred.data > 0.5).float(),
+                            train_label)
+                    )
+                    losses.append(loss.item())
+                elif dataset == 'PAMAP2':
+                    # Forward pass : Compute predicted y by passing train data to the model
+                    y_pred = model(train_data, dataset_name=dataset)
 
-                # Compute loss
-                loss = criterion(y_pred, train_label)
-                acc.append(
-                    torch.eq(
-                        # (torch.sigmoid(y_pred).data > 0.5).float(),   # sigmoid is already in 'forward' function
-                        (y_pred.data > 0.5).float(),
-                        train_label)
-                )
-                losses.append(loss.item())
+                    # Save predict and label
+                    y_pred_col.append(torch.argmax(y_pred).item())
+                    label.append(train_label.item())
+
+                    # print('y_pred: {}\t label: {}'.format(y_pred, train_label))
+
+                    # Compute loss
+                    loss = criterion(torch.unsqueeze(y_pred, 0), train_label.type(torch.LongTensor))
+
+                    acc.append(
+                        torch.eq(
+                            # (torch.sigmoid(y_pred).data > 0.5).float(),   # sigmoid is already in 'forward' function
+                            torch.argmax(y_pred),
+                            train_label)
+                    )
+                    losses.append(loss.item())
 
                 # perform a backward pass, and update the weights.
                 loss.backward()
@@ -346,25 +382,54 @@ def train_gru_d(num_runs, input_size, hidden_size, output_size, num_layers, drop
                 # dev_label = torch.squeeze(dev_label)
                 dev_label = torch.squeeze(dev_label, dim=0)
 
-                # Forward pass : Compute predicted y by passing train data to the model
-                y_pred = model(dev_data)
+                if dataset == 'P12' or dataset == 'P19' or dataset == 'eICU':
+                    # Forward pass : Compute predicted y by passing train data to the model
+                    y_pred = model(dev_data)
 
-                # Save predict and label
-                pred.append(y_pred.item())
-                label.append(dev_label.item())
+                    # Save predict and label
+                    pred.append(y_pred.item())
+                    label.append(dev_label.item())
 
-                # Compute loss
-                loss = criterion(y_pred, dev_label)
-                acc.append(
-                    torch.eq(
-                        # (torch.sigmoid(y_pred).data > 0.5).float(),   # sigmoid is already in 'forward' function
-                        (y_pred.data > 0.5).float(),
-                        dev_label)
-                )
-                losses.append(loss.item())
+                    # Compute loss
+                    loss = criterion(y_pred, dev_label)
+                    acc.append(
+                        torch.eq(
+                            # (torch.sigmoid(y_pred).data > 0.5).float(),   # sigmoid is already in 'forward' function
+                            (y_pred.data > 0.5).float(),
+                            dev_label)
+                    )
 
-            auc_val = roc_auc_score(label, pred)
-            aupr_val = average_precision_score(label, pred)
+                    losses.append(loss.item())
+                elif dataset == 'PAMAP2':
+                    # Forward pass : Compute predicted y by passing train data to the model
+                    y_pred = model(dev_data, dataset_name=dataset)
+
+                    # Save predict and label
+                    pred.append(torch.argmax(y_pred).item())
+                    label.append(dev_label.item())
+
+                    # Compute loss
+                    loss = criterion(torch.unsqueeze(y_pred, 0), dev_label.type(torch.LongTensor))
+
+                    acc.append(
+                        torch.eq(
+                            # (torch.sigmoid(y_pred).data > 0.5).float(),   # sigmoid is already in 'forward' function
+                            torch.argmax(y_pred),
+                            dev_label)
+                    )
+                    losses.append(loss.item())
+
+            if dataset == 'P12' or dataset == 'P19' or dataset == 'eICU':
+                auc_val = roc_auc_score(label, pred)
+                aupr_val = average_precision_score(label, pred)
+            elif dataset == 'PAMAP2':
+                label_oh = np.array(label)
+                label_oh = one_hot(label_oh[:, np.newaxis])
+                pred_oh = np.array(pred)
+                pred_oh = one_hot(pred_oh[:, np.newaxis])
+                auc_val = roc_auc_score(label_oh, pred_oh)
+                aupr_val = average_precision_score(label_oh, pred_oh)
+
             scheduler.step(aupr_val)  # reduce learning rate when this metric has stopped improving
 
             if aupr_val > best_aupr_val:
@@ -377,11 +442,14 @@ def train_gru_d(num_runs, input_size, hidden_size, output_size, num_layers, drop
             dev_pred_out = pred
             dev_label_out = label
 
-            print('Non-zero predictions = ', np.count_nonzero((np.array(pred) > 0.5).astype(int)))
+            # print('Non-zero predictions = ', np.count_nonzero((np.array(pred) > 0.5).astype(int)))
             print("VALIDATION: Epoch %d, val_acc: %.2f, val_loss: %.2f, aupr_val: %.2f, auc_val: %.2f" %
                   (epoch, dev_acc * 100, dev_loss.item(), aupr_val * 100, auc_val * 100))
 
-            print(confusion_matrix(label, (np.array(pred) > 0.5).astype(int), labels=[0, 1]))
+            # if dataset == 'P12' or dataset == 'P19' or dataset == 'eICU':
+            #     print(confusion_matrix(label, (np.array(pred) > 0.5).astype(int), labels=list(range(n_classes))))
+            # elif dataset == 'PAMAP2':
+            #     print(confusion_matrix(label, pred, labels=list(range(n_classes))))
 
             # test loss
             losses, acc = [], []
@@ -393,22 +461,41 @@ def train_gru_d(num_runs, input_size, hidden_size, output_size, num_layers, drop
                 # test_label = torch.squeeze(test_label)
                 test_label = torch.squeeze(test_label, dim=0)
 
-                # Forward pass : Compute predicted y by passing train data to the model
-                y_pred = model(test_data)
+                if dataset == 'P12' or dataset == 'P19' or dataset == 'eICU':
+                    # Forward pass : Compute predicted y by passing train data to the model
+                    y_pred = model(test_data)
 
-                # Save predict and label
-                pred.append(y_pred.item())
-                label.append(test_label.item())
+                    # Save predict and label
+                    pred.append(y_pred.item())
+                    label.append(test_label.item())
 
-                # Compute loss
-                loss = criterion(y_pred, test_label)
-                acc.append(
-                    torch.eq(
-                        # (torch.sigmoid(y_pred).data > 0.5).float(),   # sigmoid is already in 'forward' function
-                        (y_pred.data > 0.5).float(),
-                        test_label)
-                )
-                losses.append(loss.item())
+                    # Compute loss
+                    loss = criterion(y_pred, test_label)
+                    acc.append(
+                        torch.eq(
+                            # (torch.sigmoid(y_pred).data > 0.5).float(),   # sigmoid is already in 'forward' function
+                            (y_pred.data > 0.5).float(),
+                            test_label)
+                    )
+                    losses.append(loss.item())
+                elif dataset == 'PAMAP2':
+                    # Forward pass : Compute predicted y by passing train data to the model
+                    y_pred = model(test_data, dataset_name=dataset)
+
+                    # Save predict and label
+                    pred.append(torch.argmax(y_pred).item())
+                    label.append(test_label.item())
+
+                    # Compute loss
+                    loss = criterion(torch.unsqueeze(y_pred, 0), test_label.type(torch.LongTensor))
+
+                    acc.append(
+                        torch.eq(
+                            # (torch.sigmoid(y_pred).data > 0.5).float(),   # sigmoid is already in 'forward' function
+                            torch.argmax(y_pred),
+                            test_label)
+                    )
+                    losses.append(loss.item())
 
             test_acc = torch.mean(torch.cat(acc).float())
             test_loss = np.mean(losses)
@@ -451,22 +538,41 @@ def train_gru_d(num_runs, input_size, hidden_size, output_size, num_layers, drop
             # test_label = torch.squeeze(test_label)
             test_label = torch.squeeze(test_label, dim=0)
 
-            # Forward pass : Compute predicted y by passing train data to the model
-            y_pred = model(test_data)
+            if dataset == 'P12' or dataset == 'P19' or dataset == 'eICU':
+                # Forward pass : Compute predicted y by passing train data to the model
+                y_pred = model(test_data)
 
-            # Save predict and label
-            pred.append(y_pred.item())
-            label.append(test_label.item())
+                # Save predict and label
+                pred.append(y_pred.item())
+                label.append(test_label.item())
 
-            # Compute loss
-            loss = criterion(y_pred, test_label)
-            acc.append(
-                torch.eq(
-                    # (torch.sigmoid(y_pred).data > 0.5).float(),   # sigmoid is already in 'forward' function
-                    (y_pred.data > 0.5).float(),
-                    test_label)
-            )
-            losses.append(loss.item())
+                # Compute loss
+                loss = criterion(y_pred, test_label)
+                acc.append(
+                    torch.eq(
+                        # (torch.sigmoid(y_pred).data > 0.5).float(),   # sigmoid is already in 'forward' function
+                        (y_pred.data > 0.5).float(),
+                        test_label)
+                )
+                losses.append(loss.item())
+            elif dataset == 'PAMAP2':
+                # Forward pass : Compute predicted y by passing train data to the model
+                y_pred = model(test_data, dataset_name=dataset)
+
+                # Save predict and label
+                pred.append(torch.argmax(y_pred).item())
+                label.append(test_label.item())
+
+                # Compute loss
+                loss = criterion(torch.unsqueeze(y_pred, 0), test_label.type(torch.LongTensor))
+
+                acc.append(
+                    torch.eq(
+                        # (torch.sigmoid(y_pred).data > 0.5).float(),   # sigmoid is already in 'forward' function
+                        torch.argmax(y_pred),
+                        test_label)
+                )
+                losses.append(loss.item())
 
         test_acc = torch.mean(torch.cat(acc).float())
         test_loss = np.mean(losses)
@@ -474,17 +580,38 @@ def train_gru_d(num_runs, input_size, hidden_size, output_size, num_layers, drop
         pred = np.asarray(pred)
         label = np.asarray(label)
 
-        auc_score = roc_auc_score(label, pred)
-        aupr_score = average_precision_score(label, pred)
+        if dataset == 'P12' or dataset == 'P19' or dataset == 'eICU':
+            auc_score = roc_auc_score(label, pred)
+            aupr_score = average_precision_score(label, pred)
+        elif dataset == 'PAMAP2':
+            label_oh = np.array(label)
+            label_oh = one_hot(label_oh[:, np.newaxis])
+            pred_oh = np.array(pred)
+            pred_oh = one_hot(pred_oh[:, np.newaxis])
+            auc_score = roc_auc_score(label_oh, pred_oh)
+            aupr_score = average_precision_score(label_oh, pred_oh)
+            precision = precision_score(label, pred, average='macro', )
+            recall = recall_score(label, pred, average='macro', )
+            F1_score = f1_score(label, pred, average='macro', )
+
+            print("\nTEST: test_precision: %.2f test_recall: %.2f, test_F1: %.2f\n" %
+                  (precision * 100, recall * 100, F1_score * 100))
 
         print("\nTEST: test_acc: %.2f aupr_test: %.2f, auc_test: %.2f\n" %
               (test_acc * 100, aupr_score * 100, auc_score * 100))
 
-        print(confusion_matrix(label, (np.array(pred) > 0.5).astype(int), labels=[0, 1]))
+        if dataset == 'P12' or dataset == 'P19' or dataset == 'eICU':
+            print(confusion_matrix(label, (np.array(pred) > 0.5).astype(int), labels=list(range(n_classes))))
+        elif dataset == 'PAMAP2':
+            print(confusion_matrix(label, pred, labels=list(range(n_classes))))
 
         acc_all.append(test_acc * 100)
         auc_all.append(auc_score * 100)
         aupr_all.append(aupr_score * 100)
+        if dataset == 'PAMAP2':
+            precision_all.append(precision * 100)
+            recall_all.append(recall * 100)
+            F1_all.append(F1_score * 100)
 
     # print mean and std of all metrics
     acc_all, auc_all, aupr_all = np.array(acc_all), np.array(auc_all), np.array(aupr_all)
@@ -495,6 +622,14 @@ def train_gru_d(num_runs, input_size, hidden_size, output_size, num_layers, drop
     print('Accuracy = %.1f +/- %.1f' % (mean_acc, std_acc))
     print('AUROC    = %.1f +/- %.1f' % (mean_auc, std_auc))
     print('AUPRC    = %.1f +/- %.1f' % (mean_aupr, std_aupr))
+    if dataset == 'PAMAP2':
+        precision_all, recall_all, F1_all = np.array(precision_all), np.array(recall_all), np.array(F1_all)
+        mean_precision, std_precision = np.mean(precision_all), np.std(precision_all)
+        mean_recall, std_recall = np.mean(recall_all), np.std(recall_all)
+        mean_F1, std_F1 = np.mean(F1_all), np.std(F1_all)
+        print('Precision = %.1f +/- %.1f' % (mean_precision, std_precision))
+        print('Recall    = %.1f +/- %.1f' % (mean_recall, std_recall))
+        print('F1        = %.1f +/- %.1f' % (mean_F1, std_F1))
 
     # #show AUROC on test data for last trained epoch
     # test_preds, test_labels = epoch_losses[-1][8], epoch_losses[-1][11]
@@ -529,8 +664,7 @@ if __name__ == '__main__':
                         choices=['no_removal', 'set', 'sample'],
                         help='use this only when splittype==random; otherwise, set as no_removal')  #
     args = parser.parse_args(args=[])
-
-    print('Dataset used: ', args.dataset)   # possible values: 'P12', 'P19', 'eICU'
+    print('Dataset used: ', args.dataset)   # possible values: 'P12', 'P19', 'eICU', 'PAMAP2'
 
     if args.dataset == 'P12':
         input_size = 33  # num of variables base on the paper
@@ -541,6 +675,9 @@ if __name__ == '__main__':
     elif args.dataset == 'eICU':
         input_size = 16
         hidden_size = 16
+    elif args.dataset == 'PAMAP2':
+        input_size = 17
+        hidden_size = 17
 
     if args.withmissingratio == True:
         missing_ratios = [0.1, 0.2, 0.3, 0.4, 0.5]  # if True, with missing ratio
@@ -549,13 +686,19 @@ if __name__ == '__main__':
 
     for missing_ratio in missing_ratios:
         num_runs = 1  # 5 is too slow, use 1 for debug
-        output_size = 1
+        if args.dataset == 'P12' or args.dataset == 'P19' or args.dataset == 'eICU':
+            output_size = 1
+        elif args.dataset == 'PAMAP2':
+            output_size = 8
         num_layers = 49  # num of step or layers base on the paper / number of hidden states
         dropout = 0.0  # dropout_type : Moon, Gal, mloss
         learning_rate = 0.001
         n_epochs = 20
         batch_size = 128
-        upsampling_batch = True
+        if args.dataset == 'P12' or args.dataset == 'P19' or args.dataset == 'eICU':
+            upsampling_batch = True
+        elif args.dataset == 'PAMAP2':
+            upsampling_batch = False
 
         split_type = args.splittype  # possible values: 'random', 'age', 'gender' ('age' not possible for dataset 'eICU')
         reverse_ = args.reverse  # False  True

@@ -465,9 +465,9 @@ for missing_ratio in missing_ratios:
                 elif dataset == 'PAMAP2':
                     auc = roc_auc_score(one_hot(ytest), probs)
                     aupr = average_precision_score(one_hot(ytest), probs)
-                    precision = precision_score(ytest, ypred, average='macro', labels=np.unique(ypred))
-                    recall = recall_score(ytest, ypred, average='macro', labels=np.unique(ypred))
-                    F1 = f1_score(ytest, ypred, average='macro', labels=np.unique(ypred))
+                    precision = precision_score(ytest, ypred, average='macro', )
+                    recall = recall_score(ytest, ypred, average='macro', )
+                    F1 = f1_score(ytest, ypred, average='macro', )
                     print('Testing: Precision = %.2f | Recall = %.2f | F1 = %.2f' % (precision * 100, recall * 100, F1 * 100))
 
                 print('Testing: AUROC = %.2f | AUPRC = %.2f | Accuracy = %.2f' % (auc * 100, aupr * 100, acc * 100))

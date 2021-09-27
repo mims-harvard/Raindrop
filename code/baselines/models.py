@@ -1188,7 +1188,7 @@ class GRUD(torch.nn.Module):
     def all_weights(self):
         return [[getattr(self, weight) for weight in weights] for weights in self._all_weights]
 
-    def forward(self, input):
+    def forward(self, input, dataset_name='P12'):
         # input.size = (3, 33,49) : num_input or num_hidden, num_layer or step
         X = torch.squeeze(input[0])  # .size = (33,49)
         Mask = torch.squeeze(input[1])  # .size = (33,49)
@@ -1310,7 +1310,8 @@ class GRUD(torch.nn.Module):
         b_y = getattr(self, 'bias_y')
 
         output = torch.matmul(w_hy, h) + b_y
-        output = torch.sigmoid(output)
+        if dataset_name == 'P12':
+            output = torch.sigmoid(output)
 
         return output
 

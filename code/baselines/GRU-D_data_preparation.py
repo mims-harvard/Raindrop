@@ -78,12 +78,18 @@ def df_to_x_m_d(df, inputdict, size, id_posistion, split, dataset_name='P12'):
     if dataset_name == 'P12':
         x = np.zeros((len(inputdict) - 2, grouped_data.ngroups))
         masking = np.zeros((len(inputdict) - 2, grouped_data.ngroups))
-    elif dataset_name == 'P19' or 'eICU':
+    elif dataset_name == 'P19' or dataset_name == 'eICU':
         x = np.zeros((len(inputdict), grouped_data.ngroups))
         masking = np.zeros((len(inputdict), grouped_data.ngroups))
+    elif dataset_name == 'PAMAP2':
+        x = np.zeros((len(inputdict), 600))
+        masking = np.zeros((len(inputdict), 600))
 
     delta = np.zeros((split, size))
-    timetable = np.zeros(grouped_data.ngroups)
+    if dataset_name == 'PAMAP2':
+        timetable = np.zeros(600)
+    else:
+        timetable = np.zeros(grouped_data.ngroups)
     id = 0
 
     all_x = np.zeros((split,1))
@@ -95,7 +101,7 @@ def df_to_x_m_d(df, inputdict, size, id_posistion, split, dataset_name='P12'):
         # fill the x and masking vectors
         if dataset_name == 'P12':
             pre_time = pd.to_timedelta(0)
-        elif dataset_name == 'P19' or 'eICU':
+        elif dataset_name == 'P19' or dataset_name == 'eICU' or dataset_name == 'PAMAP2':
             pre_time = 0
 
         t = 0
@@ -118,7 +124,7 @@ def df_to_x_m_d(df, inputdict, size, id_posistion, split, dataset_name='P12'):
                 t += 1
                 if dataset_name == 'P12':
                     timetable[t] = timedelta_to_day_figure(value.Time)
-                elif dataset_name == 'P19' or 'eICU':
+                elif dataset_name == 'P19' or dataset_name == 'eICU' or dataset_name == 'PAMAP2':
                     timetable[t] = value.Time
 
             #print('agg_no : {}\t t : {}\t value : {}'.format(agg_no, t, value.Value))
@@ -196,7 +202,7 @@ def df_to_x_m_d(df, inputdict, size, id_posistion, split, dataset_name='P12'):
         # fill the x and masking vectors
         if dataset_name == 'P12':
             pre_time = pd.to_timedelta(0)
-        elif dataset_name == 'P19' or 'eICU':
+        elif dataset_name == 'P19' or dataset_name == 'eICU' or dataset_name == 'PAMAP2':
             pre_time = 0
 
         t = 0
@@ -215,7 +221,7 @@ def df_to_x_m_d(df, inputdict, size, id_posistion, split, dataset_name='P12'):
                 t += 1
                 if dataset_name == 'P12':
                     timetable[t] = timedelta_to_day_figure(value.Time)
-                elif dataset_name == 'P19' or 'eICU':
+                elif dataset_name == 'P19' or dataset_name == 'eICU' or dataset_name == 'PAMAP2':
                     timetable[t] = value.Time
 
             #print('agg_no : {}\t t : {}\t value : {}'.format(agg_no, t, value.Value))
@@ -249,7 +255,6 @@ def df_to_x_m_d(df, inputdict, size, id_posistion, split, dataset_name='P12'):
             else:
                 delta[index[0], index[1]] = timetable[index[1]] - timetable[index[1]-1]
 
-
     all_x = np.concatenate((all_x, x), axis=1)
     all_x = all_x[:,1:]
 
@@ -258,7 +263,6 @@ def df_to_x_m_d(df, inputdict, size, id_posistion, split, dataset_name='P12'):
     s_dataset[2] = delta
 
     return s_dataset, all_x, id
-
 
 
 def get_mean(x):
@@ -333,7 +337,7 @@ def df_to_y1(df):
 
 
 if __name__ == '__main__':
-    dataset_name = 'eICU'  # possible values: 'P12', 'P19', 'eICU'
+    dataset_name = 'PAMAP2'  # possible values: 'P12', 'P19', 'eICU', 'PAMAP2'
     print('Dataset used: ', dataset_name)
 
     if dataset_name == 'P12':
@@ -772,5 +776,123 @@ if __name__ == '__main__':
         # labels
         y1_outcomes = np.load('../../eICUdata/processed_data/arr_outcomes.npy', allow_pickle=True)
         y1_outcomes = y1_outcomes[..., np.newaxis]
+        np.save('saved/' + dataset_name + '_y1_out', y1_outcomes)
+
+    elif dataset_name == 'PAMAP2':
+        data = np.load('../../PAMAP2data/processed_data/PTdict_list.npy', allow_pickle=True)
+
+        n_sensors = 17
+        all_labels = np.array(['sensor_%d' % i for i in range(n_sensors)])
+        inputdict = {label: i for i, label in enumerate(all_labels)}
+
+        # prepare empty list to put data
+        inputs = [[] for i in range(n_sensors)]
+        i = 0
+        for patient in data:
+            if i % 1000 == 0:
+                print(i)
+            i += 1
+
+            arr = patient
+            time = np.arange(arr.shape[0])
+            time = time[:, np.newaxis]
+
+            # time series to df
+            time_df = []
+            parameter_df = []
+            value_df = []
+            observations_indices = np.nonzero(arr)
+            for x, y in zip(*observations_indices):
+                time_df.append(x)
+                parameter_df.append(all_labels[y])
+                value_df.append(arr[x, y])
+
+            df = pd.DataFrame(data={'Time': time_df, 'Parameter': parameter_df, 'Value': value_df})
+            inputs = df_to_inputs(df=df, inputdict=inputdict, inputs=inputs)
+
+        # save inputs just in case
+        np.save('saved/PAMAP2_inputs.npy', inputs, allow_pickle=True)
+
+        loaded_inputs = np.load('saved/PAMAP2_inputs.npy', allow_pickle=True)
+
+        # make input items list
+        input_columns = list(inputdict.keys())
+        print(input_columns)
+        print(len(input_columns))
+
+        size = 49  # steps ~ from the paper
+        id_posistion = 0  # not used
+        input_length = len(all_labels)  # input variables
+        dataset = np.zeros((1, 3, input_length, size))
+        all_x_add = np.zeros((input_length, 1))
+
+        i = 0
+        for patient in data:
+            if i % 1000 == 0:
+                print(i)
+            i += 1
+
+            arr = patient
+            time = np.arange(arr.shape[0])
+            time = time[:, np.newaxis]
+
+            # time series to df
+            time_df = []
+            parameter_df = []
+            value_df = []
+            observations_indices = np.nonzero(arr)
+            for x, y in zip(*observations_indices):
+                time_df.append(x)
+                parameter_df.append(all_labels[y])
+                value_df.append(arr[x, y])
+
+            df = pd.DataFrame(data={'Time': time_df, 'Parameter': parameter_df, 'Value': value_df})
+
+            s_dataset, all_x, _ = df_to_x_m_d(df=df, inputdict=inputdict, size=size, id_posistion=id_posistion,
+                                              split=input_length, dataset_name=dataset_name)
+
+            dataset = np.concatenate((dataset, s_dataset[np.newaxis, :, :, :]))
+            all_x_add = np.concatenate((all_x_add, all_x), axis=1)
+
+        dataset = dataset[1:, :, :, :]
+        # (total datasets, kind of data(x, masking, and delta), input length, num of varience)
+        print(dataset.shape)
+        print(dataset[0].shape)
+        print(dataset[0][0][0])
+
+        print(all_x_add.shape)
+        all_x_add = all_x_add[:, 1:]
+        print(all_x_add.shape)
+
+        train_proportion = 0.8
+        train_index = int(all_x_add.shape[1] * train_proportion)
+        train_x = all_x_add[:, :train_index]
+        print(train_x.shape)
+
+        x_mean = get_mean(train_x)
+        print(x_mean)
+        print(len(x_mean))
+
+        x_std = get_std(train_x)
+        print(x_std)
+        print(len(x_std))
+
+        x_mean = np.asarray(x_mean)
+        x_std = np.asarray(x_std)
+
+        dataset = dataset_normalize(dataset=dataset, mean=x_mean, std=x_std)
+        print(dataset[0][0][0])
+
+        nor_mean, nor_median, nor_std, nor_var = normalize_chk(dataset)
+
+        np.save('saved/PAMAP2_x_mean_aft_nor', nor_mean)
+        np.save('saved/PAMAP2_x_median_aft_nor', nor_median)
+        np.save('saved/PAMAP2_dataset.npy', dataset)
+
+        t_dataset = np.load('saved/PAMAP2_dataset.npy')
+        print(t_dataset.shape)
+
+        # labels
+        y1_outcomes = np.load('../../PAMAP2data/processed_data/arr_outcomes.npy', allow_pickle=True)
         np.save('saved/' + dataset_name + '_y1_out', y1_outcomes)
 
