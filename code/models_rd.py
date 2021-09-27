@@ -4,11 +4,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-# import os
-# os.add_dll_directory('c:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v10.1/bin')
-# os.add_dll_directory(os.path.dirname(__file__))
-
-
 from torch.nn.parameter import Parameter
 from torch_geometric.nn.inits import uniform, glorot, zeros, ones, reset
 
@@ -144,6 +139,7 @@ class TransformerModel(nn.Module):
 
         src = src + pe
 
+        # emb = self.emb(static)
         if static is not None:
             emb = self.emb(static)  # emb.shape = [128, 64]. Linear layer: 9--> 64
 
@@ -177,7 +173,8 @@ class TransformerModel2(nn.Module):
         n_classes = number of classes
     """
 
-    def __init__(self, d_inp, d_model, nhead, nhid, nlayers, dropout, max_len, d_static, MAX, perc, aggreg, n_classes, static=True):
+    def __init__(self, d_inp, d_model, nhead, nhid, nlayers, dropout, max_len, d_static, MAX, perc, aggreg, n_classes,
+                 static=True):
         super(TransformerModel2, self).__init__()
         from torch.nn import TransformerEncoder, TransformerEncoderLayer
         self.model_type = 'Transformer'
@@ -232,6 +229,7 @@ class TransformerModel2(nn.Module):
 
         src = self.dropout(src)
 
+        # emb = self.emb(static)  # emb.shape = [128, 64]. Linear layer: 9--> 64
         if static is not None:
             emb = self.emb(static)  # emb.shape = [128, 64]. Linear layer: 9--> 64
 
@@ -260,6 +258,7 @@ class TransformerModel2(nn.Module):
         # output = torch.sum(output , dim=0) / (lengths.unsqueeze(1) + 1)
 
         # feed through MLP
+        # output = torch.cat([output, emb], dim=1)  # x.shape: [216, 128, 64]
         """concat static"""
         if static is not None:
             output = torch.cat([output, emb], dim=1)  # [128, 36*5+9] # emb with dim: d_model
@@ -735,7 +734,6 @@ class LSTMCell_withtimestamp(nn.Module):
 
         # return (hy, cy)
 
-
 class Transformer_P12(nn.Module):
     """
     Transformer model (only encoder part) for time series classification of P12 dataset.
@@ -836,7 +834,7 @@ class Transformer_P12(nn.Module):
 
 class GRUD(torch.nn.Module):
     def __init__(self, input_size, hidden_size, output_size, num_layers=1, x_mean=0,
-                 bias=True, batch_first=False, bidirectional=False, dropout_type='mloss', dropout=0.0, static=True):
+                 bias=True, batch_first=False, bidirectional=False, dropout_type='mloss', dropout=0.0):
         super(GRUD, self).__init__()
         self.input_size = input_size
         self.hidden_size = hidden_size
@@ -1178,13 +1176,12 @@ class GRUD(torch.nn.Module):
 
         return output
 
-
 class Simple_classifier(nn.Module):
     ""
     """MLP:36-->32, then concat with positional encoding, masked aggregation; then MLP as classifier """
 
     def __init__(self, d_inp=36, d_model=64, nhead=4, nhid=128, nlayers=2, dropout=0.3, max_len=215, d_static=9,
-                 MAX=100, perc=0.5, aggreg='mean', n_classes=2, global_structure = None, static=True):
+                 MAX=100, perc=0.5, aggreg='mean', n_classes=2, global_structure = None):
         super(Simple_classifier, self).__init__()
         from torch.nn import TransformerEncoder, TransformerEncoderLayer
         self.model_type = 'Transformer'
@@ -1207,12 +1204,7 @@ class Simple_classifier(nn.Module):
 
         self.dim = int(d_model / d_inp)
 
-        # d_final = 36*(self.dim+1) + d_model # using transformer in step 3, nhid = 36*4
-        if static == False:
-            d_final = d_enc + d_pe  # + d_inp  # if static is None
-        else:
-            d_final = d_enc + d_pe + d_inp
-
+        d_final = 36*(self.dim+1) + d_model # using transformer in step 3, nhid = 36*4
         self.mlp_static = nn.Sequential(
             nn.Linear(d_final, d_final),
             nn.ReLU(),
@@ -1262,8 +1254,7 @@ class Simple_classifier(nn.Module):
 
         """Use late concat for static"""
         src = self.dropout(src)  # [215, 128, 36]
-        if static is not None:
-            emb = self.emb(static)  # emb.shape = [128, 64]. Linear layer: 9--> 64
+        emb = self.emb(static)  # emb.shape = [128, 64]. Linear layer: 9--> 64
 
         # append context on front
         """215-D for time series and 1-D for static info"""
@@ -1295,12 +1286,11 @@ class Simple_classifier(nn.Module):
             output = r_out[-1, :, :].squeeze(0) # take the last step's output, shape[128, 36]
 
         """concat static"""
-        if static is not None:
-            output = torch.cat([output, emb], dim=1) # [128, 36*5+9] # emb with dim: d_model
+
+        output_ = torch.cat([output, emb], dim=1) # [128, 36*5+9] # emb with dim: d_model
         output = self.mlp_static(output_)  # 45-->45-->2
 
         return output , 0, output_ # output_ is the learned feature
-
 
 class Raindrop(nn.Module):
     ""
@@ -1318,7 +1308,7 @@ class Raindrop(nn.Module):
     """
 
     def __init__(self, d_inp=36, d_model=64, nhead=4, nhid=128, nlayers=2, dropout=0.3, max_len=215, d_static=9,
-                 MAX=100, perc=0.5, aggreg='mean', n_classes=2, global_structure = None, static=True):
+                 MAX=100, perc=0.5, aggreg='mean', n_classes=2, global_structure = None):
         super(Raindrop, self).__init__()
         from torch.nn import TransformerEncoder, TransformerEncoderLayer
         self.model_type = 'Transformer'
@@ -1367,13 +1357,8 @@ class Raindrop(nn.Module):
         #     nn.Linear(self.dim+d_static, n_classes),
         # )
 
-        # d_final = 36*(self.dim+1) + d_model # using transformer in step 3, nhid = 36*4
+        d_final = 36*(self.dim+1) + d_model # using transformer in step 3, nhid = 36*4
         # d_final = 2*self.node_dim +9  # this is not as good as the previous line
-        if static == False:
-            d_final = d_enc + d_pe  # + d_inp  # if static is None
-        else:
-            d_final = d_enc + d_pe + d_inp
-
         self.mlp_static = nn.Sequential(
             nn.Linear(d_final, d_final),
             nn.ReLU(),
@@ -1431,8 +1416,7 @@ class Raindrop(nn.Module):
 
         """Use late concat for static"""
         src = self.dropout(src)  # [215, 128, 36] # do we really need dropout?
-        if static is not None:
-            emb = self.emb(static)  # emb.shape = [128, 64]. Linear layer: 9--> 64
+        emb = self.emb(static)  # emb.shape = [128, 64]. Linear layer: 9--> 64
 
         # append context on front
         """215-D for time series and 1-D for static info"""
@@ -1621,8 +1605,7 @@ class Raindrop(nn.Module):
             # output = torch.mean(output, dim=2)
 
         """concat static"""
-        if static is not None:
-            output = torch.cat([output, emb], dim=1) # [128, 36*5+9] # emb with dim: d_model
+        output = torch.cat([output, emb], dim=1) # [128, 36*5+9] # emb with dim: d_model
         output = self.mlp_static(output)  # 45-->45-->2
 
         return output , distance, None
@@ -1658,14 +1641,15 @@ class Raindrop_v2(nn.Module):
             (9, 100, 0.5, 'mean', 2) """
 
         d_pe = 16 #int(perc * d_model)
-        d_enc = 36 #d_model - d_pe
+        d_enc = d_inp #d_model - d_pe
 
         self.d_inp = d_inp
         self.d_model = d_model
-
+        # self.emb = nn.Linear(d_static, d_inp)
         self.static = static
         if self.static:
             self.emb = nn.Linear(d_static, d_inp)
+
         self.d_ob = int(d_model/d_inp)  # dimension of observation embedding
 
         # self.encoder = nn.Linear(d_inp, d_enc) # in Transformer
@@ -1698,15 +1682,15 @@ class Raindrop_v2(nn.Module):
                                                     n_nodes=d_inp, ob_dim=self.d_ob)
 
 
-        if self.sensor_wise_mask ==True:
-            d_final = self.d_inp*(self.d_ob+16) + d_inp # d_inp for static attributes
-        else:
-            d_final = d_model +16 + d_inp # using transformer in step 3, nhid = 36*4
-
-        # if static == False:
-        #     d_final = d_enc + d_pe  # + d_inp  # if static is None
+        # if self.sensor_wise_mask ==True:
+        #     d_final = self.d_inp*(self.d_ob+16) + d_inp # d_inp for static attributes
         # else:
-        #     d_final = d_enc + d_pe + d_inp
+        #     d_final = d_model +16 + d_inp # using transformer in step 3, nhid = 36*4
+
+        if static==False:
+            d_final =  d_model +d_pe # + d_inp  # if static is None
+        else:
+            d_final = d_model + d_pe  + d_inp
 
         self.mlp_static = nn.Sequential(
             nn.Linear(d_final, d_final),
@@ -1736,6 +1720,7 @@ class Raindrop_v2(nn.Module):
     def init_weights(self):
         initrange = 1e-10
         self.encoder.weight.data.uniform_(-initrange, initrange)
+        # self.emb.weight.data.uniform_(-initrange, initrange)
         if self.static:
             self.emb.weight.data.uniform_(-initrange, initrange)
         glorot(self.R_u)
@@ -1773,6 +1758,7 @@ class Raindrop_v2(nn.Module):
 
         # h = self.encoder(src) #* math.sqrt(self.d_model)  # linear layer: 72 --> 32
         pe = self.pos_encoder(times)  # times.shape = [215, 128], the values are hours. pe.shape = [215, 128, 16]
+        # emb = self.emb(static)  # emb.shape = [128, 64]. Linear layer: 9--> 64
         if static is not None:
             emb = self.emb(static)  # emb.shape = [128, 64]. Linear layer: 9--> 64
 
@@ -1928,6 +1914,7 @@ class Raindrop_v2(nn.Module):
             # output = torch.mean(output, dim=2)
 
         """concat static"""
+        # output = torch.cat([output, emb], dim=1) # [128, 36*5+9] # emb with dim: d_model
         if static is not None:
             output = torch.cat([output, emb], dim=1)  # [128, 36*5+9] # emb with dim: d_model
         output = self.mlp_static(output)  # 45-->45-->2
