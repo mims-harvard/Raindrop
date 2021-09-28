@@ -226,7 +226,7 @@ def data_dataloader(dataset, outcomes, upsampling_batch, batch_size, split_type,
 
 
 def train_gru_d(num_runs, input_size, hidden_size, output_size, num_layers, dropout, learning_rate, n_epochs,
-                batch_size, upsampling_batch, split_type, feature_removal_level, missing_ratio, dataset):
+                batch_size, upsampling_batch, split_type, feature_removal_level, missing_ratio, dataset, predictive_label='mortality'):
     model_path = 'saved/grud_model_best.pt'
 
     acc_all = []
@@ -239,7 +239,10 @@ def train_gru_d(num_runs, input_size, hidden_size, output_size, num_layers, drop
     for r in range(num_runs):
         if dataset == 'P12':
             t_dataset = np.load('saved/dataset.npy')
-            t_out = np.load('saved/y1_out.npy')
+            if predictive_label == 'mortality':
+                t_out = np.load('saved/y1_out.npy')
+            elif predictive_label == 'LoS':  # for P12 only
+                t_out = np.load('saved/LoS_y1_out.npy')
         elif dataset == 'P19':
             t_dataset = np.load('saved/P19_dataset.npy')
             t_out = np.load('saved/P19_y1_out.npy')
@@ -653,7 +656,7 @@ if __name__ == '__main__':
     import argparse
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('--dataset', type=str, default='P19', choices=['P12', 'P19', 'eICU', 'PAMAP2'])
+    parser.add_argument('--dataset', type=str, default='P12', choices=['P12', 'P19', 'eICU', 'PAMAP2'])
     parser.add_argument('--withmissingratio', default=False,
                         help='if True, missing ratio ranges from 0 to 0.5; if False, missing ratio =0')  #
     parser.add_argument('--splittype', type=str, default='random', choices=['random', 'age', 'gender'],
@@ -663,6 +666,8 @@ if __name__ == '__main__':
     parser.add_argument('--feature_removal_level', type=str, default='no_removal',
                         choices=['no_removal', 'set', 'sample'],
                         help='use this only when splittype==random; otherwise, set as no_removal')  #
+    parser.add_argument('--predictive_label', type=str, default='mortality', choices=['mortality', 'LoS'],
+                        help='use this only with P12 dataset (mortality or length of stay)')
     args = parser.parse_args(args=[])
     print('Dataset used: ', args.dataset)   # possible values: 'P12', 'P19', 'eICU', 'PAMAP2'
 
@@ -705,4 +710,4 @@ if __name__ == '__main__':
         feature_removal_level = args.feature_removal_level  # possible values: 'sample', 'set'
 
         train_gru_d(num_runs, input_size, hidden_size, output_size, num_layers, dropout, learning_rate, n_epochs,
-                    batch_size, upsampling_batch, split_type, feature_removal_level, missing_ratio, args.dataset)
+                    batch_size, upsampling_batch, split_type, feature_removal_level, missing_ratio, args.dataset, args.predictive_label)

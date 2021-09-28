@@ -331,13 +331,17 @@ def normalize_chk(dataset):
 # only check In-hospital_death
 def df_to_y1(df):
     output = df.values
-    output = output[:, 5:]
+    output = output[:, 5:]  # for mortality
+
+    # # for LoS
+    # output = output[:, 3]
+    # output = np.array(list(map(lambda los: 0 if los <= 3 else 1, output)))[..., np.newaxis]
 
     return output
 
 
 if __name__ == '__main__':
-    dataset_name = 'PAMAP2'  # possible values: 'P12', 'P19', 'eICU', 'PAMAP2'
+    dataset_name = 'P12'  # possible values: 'P12', 'P19', 'eICU', 'PAMAP2'
     print('Dataset used: ', dataset_name)
 
     if dataset_name == 'P12':
