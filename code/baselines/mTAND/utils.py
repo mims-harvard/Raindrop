@@ -389,7 +389,8 @@ def random_sample_8(ytrain, B, replace=False):
     return idx
 
 
-def get_data(args, dataset, device, q, upsampling_batch, split_type, feature_removal_level, missing_ratio, flag=1, reverse=False):
+def get_data(args, dataset, device, q, upsampling_batch, split_type, feature_removal_level, missing_ratio, flag=1,
+             reverse=False, predictive_label='mortality'):
     if dataset == 'P12':
         train_dataset_obj_1 = PhysioNet('data/physionet', train=True,
                                         quantization=q,
@@ -421,6 +422,14 @@ def get_data(args, dataset, device, q, upsampling_batch, split_type, feature_rem
         dataset_3 = train_dataset_obj_3[:len(train_dataset_obj_3)]
 
         total_dataset = dataset_1 + dataset_2 + dataset_3
+
+        if predictive_label == 'LoS':
+            los_outcomes = np.load('../saved/LoS_y1_out.npy', allow_pickle=True)
+            for i, tpl in enumerate(total_dataset):
+                a, b, c, d, _ = tpl
+                los_label = los_outcomes[i][0]
+                los_label = torch.tensor(los_label, dtype=torch.float32)
+                total_dataset[i] = (a, b, c, d, los_label)
 
         '''
         # calculate and save statistics
@@ -521,7 +530,7 @@ def get_data(args, dataset, device, q, upsampling_batch, split_type, feature_rem
     input_dim = vals.size(-1)
     data_min, data_max = get_data_min_max(total_dataset, device)
     # batch_size = min(min(len(train_dataset_obj_1), args.batch_size), args.n)
-    batch_size =   128 # 128
+    batch_size = 128 # 128
     if flag:
         if args.classif:
             if split_type == 'random':

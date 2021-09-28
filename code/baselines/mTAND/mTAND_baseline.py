@@ -33,14 +33,14 @@ parser.add_argument('--learn-emb', action='store_true')
 parser.add_argument('--num-heads', type=int, default=1)
 parser.add_argument('--freq', type=float, default=10.)
 
-
-parser.add_argument('--dataset', type=str, default='PAMAP2', choices=['P12', 'P19', 'eICU', 'PAMAP2'])
+parser.add_argument('--dataset', type=str, default='P12', choices=['P12', 'P19', 'eICU', 'PAMAP2'])
 parser.add_argument('--withmissingratio', default=False, help='if True, missing ratio ranges from 0 to 0.5; if False, missing ratio =0')
 parser.add_argument('--splittype', type=str, default='random', choices=['random', 'age', 'gender'], help='only use for P12 and P19')
 parser.add_argument('--reverse', default=False, help='if True,use female, older for tarining; if False, use female or younger for training')
-parser.add_argument('--feature_removal_level', type=str, default='set', choices=['no_removal', 'set', 'sample'],
+parser.add_argument('--feature_removal_level', type=str, default='no_removal', choices=['no_removal', 'set', 'sample'],
                     help='use this only when splittype==random; otherwise, set as no_removal')
-
+parser.add_argument('--predictive_label', type=str, default='mortality', choices=['mortality', 'LoS'],
+                    help='use this only with P12 dataset (mortality or length of stay)')
 args = parser.parse_args(args=[])
 
 if __name__ == '__main__':
@@ -74,14 +74,14 @@ if __name__ == '__main__':
                 'cuda' if torch.cuda.is_available() else 'cpu')
             print('we are using: {}'.format(device))
 
-            # device = 'cpu'  # todo
+            # device = 'cpu'
             args.classif = True
             args.niters = 20  # number of epochs
             dataset = args.dataset  # possible values: 'P12', 'P19', 'eICU', 'PAMAP2'
             print('Dataset used: ', dataset)
 
             data_obj = utils.get_data(args, dataset, device, args.quantization, upsampling_batch, split_type,
-                                      feature_removal_level, missing_ratio, reverse=reverse_)
+                                      feature_removal_level, missing_ratio, reverse=reverse_, predictive_label=args.predictive_label)
             # elif args.dataset == 'mimiciii':
             #     data_obj = utils.get_mimiciii_data(args)
             # elif args.dataset == 'activity':
