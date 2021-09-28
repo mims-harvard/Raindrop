@@ -99,7 +99,11 @@ else:
 for missing_ratio in missing_ratios:
     # training/model params
     num_epochs = 20
-    learning_rate = 0.001
+
+    if dataset == 'P12' or dataset == 'P19' or dataset == 'eICU':
+        learning_rate = 0.001
+    elif dataset == 'PAMAP2':
+        learning_rate = 0.01
 
     if dataset == 'P12':
         d_static = 9

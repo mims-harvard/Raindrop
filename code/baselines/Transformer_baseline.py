@@ -36,12 +36,14 @@ torch.manual_seed(1)
 
 import argparse
 parser = argparse.ArgumentParser()
-parser.add_argument('--dataset', type=str, default='PAMAP2', choices=['P12', 'P19', 'eICU', 'PAMAP2'])
+parser.add_argument('--dataset', type=str, default='P12', choices=['P12', 'P19', 'eICU', 'PAMAP2'])
 parser.add_argument('--withmissingratio', default=False, help='if True, missing ratio ranges from 0 to 0.5; if False, missing ratio =0')
 parser.add_argument('--splittype', type=str, default='random', choices=['random', 'age', 'gender'], help='only use for P12 and P19')
 parser.add_argument('--reverse', default=False, help='if True, use female, older for training; if False, use female or younger for training')
-parser.add_argument('--feature_removal_level', type=str, default='set', choices=['no_removal', 'set', 'sample'],
+parser.add_argument('--feature_removal_level', type=str, default='no_removal', choices=['no_removal', 'set', 'sample'],
                     help='use this only when splittype==random; otherwise, set as no_removal')
+parser.add_argument('--predictive_label', type=str, default='mortality', choices=['mortality', 'LoS'],
+                    help='use this only with P12 dataset (mortality or length of stay)')
 # args = parser.parse_args() #args=[]
 args, unknown = parser.parse_known_args()
 
@@ -177,7 +179,8 @@ for missing_ratio in missing_ratios:
 
         # prepare the data:
         Ptrain, Pval, Ptest, ytrain, yval, ytest = get_data_split(base_path, split_path, split_type=split,
-                                                                  reverse=reverse, baseline=baseline, dataset=dataset)
+                                                                  reverse=reverse, baseline=baseline, dataset=dataset,
+                                                                  predictive_label=args.predictive_label)
         print(len(Ptrain), len(Pval), len(Ptest), len(ytrain), len(yval), len(ytest))
 
         if dataset == 'P12' or dataset == 'P19' or dataset == 'eICU':

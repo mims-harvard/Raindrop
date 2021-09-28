@@ -60,7 +60,7 @@ def random_split(n=11988, train_ratio=0.8, val_ratio=0.1, test_ratio=0.1):
     return idx_train, idx_val, idx_test
 
 
-def get_data_split(base_path, split_path, split_type='random', reverse=False, baseline=True, dataset='P12'):
+def get_data_split(base_path, split_path, split_type='random', reverse=False, baseline=True, dataset='P12', predictive_label='mortality'):
     # load data
     if dataset == 'P12':
         Pdict_list = np.load(base_path + '/processed_data/PTdict_list.npy', allow_pickle=True)
@@ -190,7 +190,11 @@ def get_data_split(base_path, split_path, split_type='random', reverse=False, ba
     # extract mortality labels
     # if dataset == 'P12' or dataset == 'P19':
     if dataset == 'P12' or dataset == 'P19' or dataset == 'PAMAP2':
-        y = arr_outcomes[:, -1].reshape((-1, 1))
+        if predictive_label == 'mortality':
+            y = arr_outcomes[:, -1].reshape((-1, 1))
+        elif predictive_label == 'LoS':  # for P12 only
+            y = arr_outcomes[:, 3].reshape((-1, 1))
+            y = np.array(list(map(lambda los: 0 if los <= 3 else 1, y)))[..., np.newaxis]
     elif dataset == 'eICU':
         y = arr_outcomes[..., np.newaxis]
     ytrain = y[idx_train]

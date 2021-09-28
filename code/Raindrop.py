@@ -110,16 +110,15 @@ torch.manual_seed(1)
 
 import argparse
 parser = argparse.ArgumentParser()
-parser.add_argument('--dataset', type=str, default='PAMAP2', choices=['P12', 'P19', 'eICU', 'PAMAP2']) #
+parser.add_argument('--dataset', type=str, default='P12', choices=['P12', 'P19', 'eICU', 'PAMAP2']) #
 parser.add_argument('--withmissingratio', default=False, help='if True, missing ratio ranges from 0 to 0.5; if False, missing ratio =0') #
 parser.add_argument('--splittype', type=str, default='random', choices=['random', 'age', 'gender'], help='only use for P12 and P19')
 parser.add_argument('--reverse', default=False, help='if True,use female, older for tarining; if False, use female or younger for training') #
-parser.add_argument('--feature_removal_level', type=str, default='set', choices=['no_removal', 'set', 'sample'],
+parser.add_argument('--feature_removal_level', type=str, default='no_removal', choices=['no_removal', 'set', 'sample'],
                     help='use this only when splittype==random; otherwise, set as no_removal') #
-
+parser.add_argument('--predictive_label', type=str, default='mortality', choices=['mortality', 'LoS'],
+                    help='use this only with P12 dataset (mortality or length of stay)')
 args, unknown = parser.parse_known_args()
-
-
 
 # training modes
 arch = 'raindrop'
@@ -240,8 +239,8 @@ for missing_ratio in missing_ratios:
     # MAX = d_model
     MAX = 100
 
-    n_runs = 1 # change this from 1 to 1, in order to save debugging time.
-    n_splits = 5 # change this from 5 to 1, in order to save debugging time.
+    n_runs = 1  # change this from 1 to 1, in order to save debugging time.
+    n_splits = 5  # change this from 5 to 1, in order to save debugging time.
     subset = False  # use subset for better debugging in local PC, which only contains 1200 patients
 
     acc_arr = np.zeros((n_splits, n_runs))
@@ -269,7 +268,8 @@ for missing_ratio in missing_ratios:
 
         # prepare the data:
         Ptrain, Pval, Ptest, ytrain, yval, ytest = get_data_split(base_path, split_path, split_type=split, reverse=reverse,
-                                                                  baseline=baseline, dataset=dataset)
+                                                                  baseline=baseline, dataset=dataset,
+                                                                  predictive_label=args.predictive_label)
         # Ptrain, Pval, Ptest, ytrain, yval, ytest = get_data_split(base_path, split_path) # use fixed split
         # Ptrain, Pval, Ptest, ytrain, yval, ytest = get_data_split(base_path, split_path=None) # use random split
         print(len(Ptrain), len(Pval), len(Ptest), len(ytrain), len(yval), len(ytest))
@@ -428,7 +428,7 @@ for missing_ratio in missing_ratios:
             expanded_idx_1 = np.concatenate([idx_1, idx_1, idx_1], axis=0)
             expanded_n1 = len(expanded_idx_1)
 
-            batch_size =  128  # balanced batch size
+            batch_size = 128  # balanced batch size
             if strategy == 1:
                 n_batches = 10  # number of batches to process per epoch
             elif strategy == 2:
