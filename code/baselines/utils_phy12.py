@@ -220,6 +220,143 @@ def getStats(P_tensor):
         stdf[f] = np.max([stdf[f], eps])
     return mf, stdf
 
+
+def get_features_mean(X_features):
+    """
+    Calculate means of all time series features (36 features in P12 dataset).
+
+    :param X_features: time series features for all samples in training set
+    :return: list of means for all features (36)
+    """
+    samples, timesteps, features = X_features.shape
+    X = np.reshape(X_features, newshape=(samples*timesteps, features)).T
+    means = []
+    for row in X:
+        row = row[row > 0]
+        means.append(np.mean(row))
+    return means
+
+
+def mean_imputation(X_features, X_time, mean_features, missing_value_num):
+    """
+    Fill X_features missing values with mean values of all train samples.
+
+    :param X_features: time series features for all samples
+    :param X_time: times, when observations were measured
+    :param mean_features: mean values of features from the training set
+    :return: X_features, filled with mean values instead of zeros (missing observations)
+    """
+    time_length = []
+    for times in X_time:
+        if np.where(times == missing_value_num)[0].size == 0:
+            time_length.append(times.shape[0])
+        elif np.where(times == missing_value_num)[0][0] == 0:
+            time_length.append(np.where(times == missing_value_num)[0][1])
+        else:
+            time_length.append(np.where(times == missing_value_num)[0][0])
+
+    # check for inconsistency
+    for i in range(len(X_features)):
+        if np.any(X_features[i, time_length[i]:, :]):
+            print('Inconsistency between X_features and X_time: features are measured without time stamp.')
+
+    # impute times series features
+    for i, sample in enumerate(X_features):
+        X_features_relevant = sample[:time_length[i], :]
+        missing_values_idx = np.where(X_features_relevant == missing_value_num)
+        for row, col in zip(*missing_values_idx):
+            X_features[i, row, col] = mean_features[col]
+
+    return X_features
+
+
+def forward_imputation(X_features, X_time, missing_value_num):
+    """
+    Fill X_features missing values with values, which are the same as its last measurement.
+
+    :param X_features: time series features for all samples
+    :param X_time: times, when observations were measured
+    :return: X_features, filled with last measurements instead of zeros (missing observations)
+    """
+    time_length = []
+    for times in X_time:
+        if np.where(times == missing_value_num)[0].size == 0:
+            time_length.append(times.shape[0])
+        elif np.where(times == missing_value_num)[0][0] == 0:
+            time_length.append(np.where(times == missing_value_num)[0][1])
+        else:
+            time_length.append(np.where(times == missing_value_num)[0][0])
+
+    # impute times series features
+    for i, sample in enumerate(X_features):
+        for j, ts in enumerate(sample.T):   # note the transposed matrix
+            first_observation = True
+            current_value = -1
+            for k, observation in enumerate(ts[:time_length[i]]):
+                if X_features[i, k, j] == missing_value_num and first_observation:
+                    continue
+                elif X_features[i, k, j] != missing_value_num:
+                    current_value = X_features[i, k, j]
+                    first_observation = False
+                elif X_features[i, k, j] == missing_value_num and not first_observation:
+                    X_features[i, k, j] = current_value
+
+    return X_features
+
+
+def cubic_spline_imputation(X_features, X_time, missing_value_num):
+    """
+    Fill X_features missing values with cubic spline interpolation.
+
+    :param X_features: time series features for all samples
+    :param X_time: times, when observations were measured
+    :return: X_features, filled with interpolated values
+    """
+    from scipy.interpolate import CubicSpline
+
+    # print(X_features[0, 160:170, 5:12])
+
+    time_length = []
+    for times in X_time:
+        if np.where(times == missing_value_num)[0].size == 0:
+            time_length.append(times.shape[0])
+        elif np.where(times == missing_value_num)[0][0] == 0:
+            time_length.append(np.where(times == missing_value_num)[0][1])
+        else:
+            time_length.append(np.where(times == missing_value_num)[0][0])
+
+    # time_length = [np.where(times == 0)[0][1] if np.where(times == 0)[0][0] == 0 else np.where(times == 0)[0][0] for times in X_time]
+
+    # impute times series features
+    for i, sample in enumerate(X_features):
+        for j, ts in enumerate(sample.T):   # note the transposed matrix
+            valid_ts = ts[:time_length[i]]
+            zero_idx = np.where(valid_ts == missing_value_num)[0]
+            non_zero_idx = np.nonzero(valid_ts)[0]
+            y = valid_ts[non_zero_idx]
+
+            if len(y) > 1:   # we need at least 2 observations to fit cubic spline
+                x = X_time[i, :time_length[i], 0][non_zero_idx]
+                x2interpolate = X_time[i, :time_length[i], 0][zero_idx]
+
+                cs = CubicSpline(x, y)
+                interpolated_ts = cs(x2interpolate)
+                valid_ts[zero_idx] = interpolated_ts
+
+                # set values before first measurement to the value of first measurement
+                first_obs_index = non_zero_idx[0]
+                valid_ts[:first_obs_index] = np.full(shape=first_obs_index, fill_value=valid_ts[first_obs_index])
+
+                # set values after last measurement to the value of last measurement
+                last_obs_index = non_zero_idx[-1]
+                valid_ts[last_obs_index:] = np.full(shape=time_length[i] - last_obs_index, fill_value=valid_ts[last_obs_index])
+
+                X_features[i, :time_length[i], j] = valid_ts
+
+    # print(X_features[0, 160:170, 5:12])
+    return X_features
+
+
 def mask_normalize(P_tensor, mf, stdf):
     """ Normalize time series variables. Missing ones are set to zero after normalization. """
     N, T, F = P_tensor.shape

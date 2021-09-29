@@ -44,6 +44,8 @@ parser.add_argument('--feature_removal_level', type=str, default='no_removal', c
                     help='use this only when splittype==random; otherwise, set as no_removal')
 parser.add_argument('--predictive_label', type=str, default='mortality', choices=['mortality', 'LoS'],
                     help='use this only with P12 dataset (mortality or length of stay)')
+parser.add_argument('--imputation', type=str, default='no_imputation', choices=['no_imputation', 'mean', 'forward', 'cubic_spline'],
+                    help='use this if you want to impute missing values')
 # args = parser.parse_args() #args=[]
 args, unknown = parser.parse_known_args()
 
@@ -182,6 +184,57 @@ for missing_ratio in missing_ratios:
                                                                   reverse=reverse, baseline=baseline, dataset=dataset,
                                                                   predictive_label=args.predictive_label)
         print(len(Ptrain), len(Pval), len(Ptest), len(ytrain), len(yval), len(ytest))
+
+        # impute missing values
+        if args.imputation != 'no_imputation':
+            if dataset == 'P12' or dataset == 'P19' or dataset == 'eICU':
+                X_features_train = np.array([d['arr'] for d in Ptrain])
+                X_time_train = np.array([d['time'] for d in Ptrain])
+                X_features_val = np.array([d['arr'] for d in Pval])
+                X_time_val = np.array([d['time'] for d in Pval])
+                X_features_test = np.array([d['arr'] for d in Ptest])
+                X_time_test = np.array([d['time'] for d in Ptest])
+            elif dataset == 'PAMAP2':
+                X_features_train = Ptrain
+                X_time_train = np.array([np.arange(1, Ptrain.shape[1] + 1)[..., np.newaxis] for d in Ptrain])
+                X_features_val = Pval
+                X_time_val = np.array([np.arange(1, Pval.shape[1] + 1)[..., np.newaxis] for d in Pval])
+                X_features_test = Ptest
+                X_time_test = np.array([np.arange(1, Ptest.shape[1] + 1)[..., np.newaxis] for d in Ptest])
+
+            if dataset == 'P12' or dataset == 'P19' or dataset == 'PAMAP2':
+                missing_value_num = 0
+            elif dataset == 'eICU':
+                missing_value_num = -1
+
+            if args.imputation == 'mean':
+                features_means = get_features_mean(X_features_train)
+                X_features_train = mean_imputation(X_features_train, X_time_train, features_means, missing_value_num)
+                X_features_val = mean_imputation(X_features_val, X_time_val, features_means, missing_value_num)
+                X_features_test = mean_imputation(X_features_test, X_time_test, features_means, missing_value_num)
+            elif args.imputation == 'forward':
+                X_features_train = forward_imputation(X_features_train, X_time_train, missing_value_num)
+                X_features_val = forward_imputation(X_features_val, X_time_val, missing_value_num)
+                X_features_test = forward_imputation(X_features_test, X_time_test, missing_value_num)
+            elif args.imputation == 'cubic_spline':
+                X_features_train = cubic_spline_imputation(X_features_train, X_time_train, missing_value_num)
+                X_features_val = cubic_spline_imputation(X_features_val, X_time_val, missing_value_num)
+                X_features_test = cubic_spline_imputation(X_features_test, X_time_test, missing_value_num)
+
+            if dataset == 'P12' or dataset == 'P19' or dataset == 'eICU':
+                for i, pat in enumerate(X_features_train):
+                    Ptrain[i]['arr'] = pat
+                for i, pat in enumerate(X_features_val):
+                    Pval[i]['arr'] = pat
+                for i, pat in enumerate(X_features_test):
+                    Ptest[i]['arr'] = pat
+            elif dataset == 'PAMAP2':
+                for i, pat in enumerate(X_features_train):
+                    Ptrain[i] = pat
+                for i, pat in enumerate(X_features_val):
+                    Pval[i] = pat
+                for i, pat in enumerate(X_features_test):
+                    Ptest[i] = pat
 
         if dataset == 'P12' or dataset == 'P19' or dataset == 'eICU':
             T, F = Ptrain[0]['arr'].shape
