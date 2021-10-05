@@ -1,7 +1,5 @@
 # Irregular sample Transformer model - PhysioNet-2012
 # Aggregation over 5 splits
-#
-# Author: Theodoros Tsiligkaridis
 # Last updated: May 19 2021
 import time
 
@@ -43,8 +41,6 @@ base_path = '../P12data'
 # print('ts_params: ', ts_params)
 # print('extended_static_params: ', extended_static_params)
 
-# """Xiang"""
-# base_path = '../Theo/Transformer-Irregular'
 ts_params= ['ALP', 'ALT', 'AST', 'Albumin', 'BUN', 'Bilirubin', 'Cholesterol', 'Creatinine',
  'DiasABP', 'FiO2', 'GCS', 'Glucose', 'HCO3', 'HCT', 'HR', 'K', 'Lactate', 'MAP',
  'MechVent', 'Mg', 'NIDiasABP', 'NIMAP', 'NISysABP', 'Na', 'PaCO2', 'PaO2',

@@ -16,7 +16,7 @@ if wandb:
     wandb.login(key=str('14734fe9c5574e019e8f517149a20d6fe1b2fd0d'))
     config = wandb.config
     # run = wandb.init(project='WBtest', config={'wandb_nb':'wandb_three_in_one_hm'})
-    run = wandb.init(project='Raindrop', entity='xiang_zhang', config={'wandb_nb':'wandb_three_in_one_hm'})
+    run = wandb.init(project='Raindrop', entity='XZ', config={'wandb_nb':'wandb_three_in_one_hm'})
 
 
 from sklearn.metrics import roc_auc_score, classification_report, confusion_matrix
@@ -67,8 +67,6 @@ elif dataset == 'eICU':
 # print('ts_params: ', ts_params)
 # print('extended_static_params: ', extended_static_params)
 
-# """Xiang"""
-# base_path = '../Theo/Transformer-Irregular'
 ts_params= ['ALP', 'ALT', 'AST', 'Albumin', 'BUN', 'Bilirubin', 'Cholesterol', 'Creatinine',
  'DiasABP', 'FiO2', 'GCS', 'Glucose', 'HCO3', 'HCT', 'HR', 'K', 'Lactate', 'MAP',
  'MechVent', 'Mg', 'NIDiasABP', 'NIMAP', 'NISysABP', 'Na', 'PaCO2', 'PaO2',

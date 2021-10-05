@@ -858,8 +858,7 @@ class LSTMCell(nn.Module):
 
     """
     # Originally from https://github.com/emadRad/lstm-gru-pytorch/blob/master/lstm_gru.ipynb
-    # Modified by Xiang
-
+    
     def __init__(self, input_size, hidden_size, bias=True):
         super(LSTMCell, self).__init__()
         self.input_size = input_size
@@ -1106,7 +1105,6 @@ class LSTMCell_withtimestamp(nn.Module):
 
     """
     # Originally from https://github.com/emadRad/lstm-gru-pytorch/blob/master/lstm_gru.ipynb
-    # Modified by Xiang
 
     def __init__(self, input_size, hidden_size, bias=True):
         super(LSTMCell_withtimestamp, self).__init__()

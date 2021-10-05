@@ -11,7 +11,7 @@ if wandb:
     wandb.login(key=str('14734fe9c5574e019e8f517149a20d6fe1b2fd0d'))
     config = wandb.config
     # run = wandb.init(project='WBtest', config={'wandb_nb':'wandb_three_in_one_hm'})
-    run = wandb.init(project='Raindrop', entity='xiang_zhang', config={'wandb_nb':'wandb_three_in_one_hm'})
+    run = wandb.init(project='Raindrop', entity='XZ', config={'wandb_nb':'wandb_three_in_one_hm'})
 from sklearn.metrics import roc_auc_score, classification_report, confusion_matrix
 from models import  TransformerModel2, Simple_classifier
 from utils_baselines import *
@@ -75,8 +75,6 @@ if __name__ == '__main__':
 
     """"PAMAP2 120,000 samples for 6 or 8 subjects. 20,000 samples for each sub. 51 features, 8 activities(0-7)"""
     """100 Hz"""
-    """Dataset: file:///media/xiangzhang/Xiang/backup/xiangzhang/Downloads/Data/PAMAP2_Dataset/readme.pdf"""
-
     # data = sc.loadmat(base_path+"processed_data/AR_8p_8c.mat")
     # dataset = data['AR_8p_8c']  # (1200,000, 52)
     # # dataset = dataset[:20000]

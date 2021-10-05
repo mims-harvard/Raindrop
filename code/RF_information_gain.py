@@ -63,4 +63,3 @@ for f in range(n_sensors):
 sorted_sensor = np.argsort(np.array(AUC_list))  # sensor importance ascendingly ordered
 sensor_descending = sorted_sensor[::-1]
 print(sensor_descending)
-"""Xiang: Please save this sensor_descending array as you did for density_scores.npy"""

@@ -508,7 +508,6 @@ class LSTMCell(nn.Module):
 
     """
     # Originally from https://github.com/emadRad/lstm-gru-pytorch/blob/master/lstm_gru.ipynb
-    # Modified by Xiang
 
     def __init__(self, input_size, hidden_size, bias=True):
         super(LSTMCell, self).__init__()
@@ -754,7 +753,6 @@ class LSTMCell_withtimestamp(nn.Module):
 
     """
     # Originally from https://github.com/emadRad/lstm-gru-pytorch/blob/master/lstm_gru.ipynb
-    # Modified by Xiang
 
     def __init__(self, input_size, hidden_size, bias=True):
         super(LSTMCell_withtimestamp, self).__init__()
@@ -1671,7 +1669,6 @@ class Raindrop(nn.Module):
         # r_out = output
 
         # the input and output size of transformer encoder is the same. If want to change it, revise Line 268 in
-        # /home/xiangzhang/.local/lib/python3.8/site-packages/torch/nn/modules/transformer.py
 
         # """LSTM layer"""
         # # # standard LSTM

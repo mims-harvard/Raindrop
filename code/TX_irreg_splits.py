@@ -1,7 +1,5 @@
 # Irregular sample Transformer model - PhysioNet-2012
 # Aggregation over 5 splits
-#
-# Author: Theodoros Tsiligkaridis
 # Last updated: May 19 2021
 import numpy as np
 

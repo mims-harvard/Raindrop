@@ -1,6 +1,4 @@
 # Raindrop strategy -- using PhysioNet-2012 dataset
-#
-# Author: Xiang Zhang
 # Last updated: 2021
 
 wandb = False
@@ -20,7 +18,7 @@ if wandb:
 
     wandb.login(key=str('14734fe9c5574e019e8f517149a20d6fe1b2fd0d'))
     config = wandb.config
-    run = wandb.init(project='Raindrop', entity='xiang_zhang', config={'wandb_nb':'wandb_three_in_one_hm'})
+    run = wandb.init(project='Raindrop', entity='XZ', config={'wandb_nb':'wandb_three_in_one_hm'})
 
 from sklearn.metrics import roc_auc_score, classification_report, confusion_matrix, average_precision_score, precision_score, recall_score, f1_score
 from models_rd import *
@@ -143,7 +141,6 @@ elif dataset == 'PAMAP2':
 # print('ts_params: ', ts_params)
 # print('extended_static_params: ', extended_static_params)
 
-# """Xiang"""
 ts_params= ['ALP', 'ALT', 'AST', 'Albumin', 'BUN', 'Bilirubin', 'Cholesterol', 'Creatinine',
  'DiasABP', 'FiO2', 'GCS', 'Glucose', 'HCO3', 'HCT', 'HR', 'K', 'Lactate', 'MAP',
  'MechVent', 'Mg', 'NIDiasABP', 'NIMAP', 'NISysABP', 'Na', 'PaCO2', 'PaO2',
@@ -385,12 +382,7 @@ for missing_ratio in missing_ratios:
 
         for m in range(n_runs):
             print('- - Run %d - -' % (m + 1))
-            """"Xiang: until here, all the above processing are the same as TX_irregular_splits_subset.py"""""
 
-            # instantiate model
-            # model = TransformerModel2(d_inp, d_model, nhead, nhid, nlayers, dropout, max_len,
-            #                           d_static, MAX, 0.5, aggreg, n_classes)
-            # HGT_latconcat, Raindrop,
             """d_inp = 36 * 1 ;        d_model = 36 * 2;        nhid = 2 * d_model"""
             if dataset == 'P12' or dataset == 'P19' or dataset == 'eICU':
                 model = Raindrop_v2(d_inp, d_model, nhead, nhid, nlayers, dropout, max_len,

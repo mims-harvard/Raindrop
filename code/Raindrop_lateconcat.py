@@ -1,6 +1,4 @@
 # Raindrop strategy -- using PhysioNet-2012 dataset
-#
-# Author: Xiang Zhang
 # Last updated: 2021
 import numpy as np
 
@@ -42,8 +40,6 @@ base_path = '../P12data'
 # print('ts_params: ', ts_params)
 # print('extended_static_params: ', extended_static_params)
 
-# """Xiang"""
-# base_path = '../Theo/Transformer-Irregular'
 ts_params= ['ALP', 'ALT', 'AST', 'Albumin', 'BUN', 'Bilirubin', 'Cholesterol', 'Creatinine',
  'DiasABP', 'FiO2', 'GCS', 'Glucose', 'HCO3', 'HCT', 'HR', 'K', 'Lactate', 'MAP',
  'MechVent', 'Mg', 'NIDiasABP', 'NIMAP', 'NISysABP', 'Na', 'PaCO2', 'PaO2',
@@ -145,11 +141,7 @@ for k in range(n_splits):
 
     for m in range(n_runs):
         print('- - Run %d - -' % (m + 1))
-        """"Xiang: until here, all the above processing are the same as TX_irregular_splits_subset.py"""""
 
-        # instantiate model
-        # model = TransformerModel2(d_inp, d_model, nhead, nhid, nlayers, dropout, max_len,
-        #                           d_static, MAX, 0.5, aggreg, n_classes)
         model = Raindrop(d_inp, d_model, nhead, nhid, nlayers, dropout, max_len,
                                   d_static, MAX, 0.5, aggreg, n_classes)
 

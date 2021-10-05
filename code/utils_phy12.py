@@ -1,6 +1,4 @@
 # Utility functions
-#
-# Author: Theodoros Tsiligkaridis
 # Last updated: April 26 2021
 import numpy as np
 import matplotlib.pyplot as plt
@@ -385,7 +383,6 @@ def evaluate(model, P_tensor, P_time_tensor, P_static_tensor, batch_size=100, n_
     return out
 
 
-"""Xiang:"""
 def evaluate_standard(model, P_tensor, P_time_tensor, P_static_tensor, batch_size=100, n_classes=2, static=1):
     # model.eval()
     P_tensor = P_tensor.cuda()
