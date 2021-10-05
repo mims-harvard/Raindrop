@@ -1,5 +1,5 @@
 """
-Code originates from GRUD_mean.ipynb from gitHub repository https://github.com/Han-JD/GRU-D.
+Code originates from GRUD_mean.ipynb from GitHub repository https://github.com/Han-JD/GRU-D.
 """
 
 # import sys

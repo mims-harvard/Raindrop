@@ -1,3 +1,11 @@
+"""
+Code originates from original mTAND code on GitHub repository https://github.com/reml-lab/mTAN.
+
+Original paper:
+Shukla, Satya Narayan, and Benjamin Marlin. "Multi-Time Attention Networks for Irregularly Sampled Time Series."
+International Conference on Learning Representations. 2020.
+"""
+
 #pylint: disable=E1101, E0401, E1102, W0621, W0221
 import argparse
 import numpy as np
