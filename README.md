@@ -129,7 +129,7 @@ pip install -r requirements.txt
 
 ## Running the code
 
-We provide ready-to-run code for our Raindrop model and four baselines: 
+We provide ready-to-run code for our Raindrop model and the following baselines: 
 Transformer, Trans-mean, GRU-D, SeFT and mTAND. 
 Starting from root directory *Raindrop*, you can run models as follows:
 
@@ -186,19 +186,19 @@ Options: [no_imputation, mean, forward, cubic_spline].
 
 #### Examples
 
-In all cases beware the directory from which you run these commands (see *cd* commands above ).
+In all cases beware the directory from which you run these commands (see *cd* commands above).
 
-Run Raindrop model on P19 dataset in setting 1 (standard time series classification) 
+Run Raindrop model on P12 dataset in setting 1 (standard time series classification) 
 for predicting length of hospital stay, which is binarized with the threshold of 3 days:
 
 ```
-python Raindrop.py --dataset P19 --withmissingratio False --splittype random --feature_removal_level no_removal --predictive_label LoS
+python Raindrop.py --dataset P12 --withmissingratio False --splittype random --feature_removal_level no_removal --predictive_label LoS
 ```
 
-Run Transformer baseline on P12 dataset in setting 2 (leave-fixed-sensors-out):
+Run Transformer baseline on P19 dataset in setting 2 (leave-fixed-sensors-out):
 
 ```
-python Transformer_baseline.py --dataset P12 --withmissingratio True --splittype random --feature_removal_level set
+python Transformer_baseline.py --dataset P19 --withmissingratio True --splittype random --feature_removal_level set
 ```
 
 Run SeFT baseline on PAM dataset in setting 3 (leave-random-sensors-out):
