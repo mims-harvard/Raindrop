@@ -25,10 +25,7 @@ idea of raindrops falling into a pool at sequential but nonuniform
 time intervals and thereby creating ripple effects
 that propagate across the pool.
 
-<p align="center">
-<img src="https://github.com/mims-harvard/Raindrop/images/fig1.png" width="550" align="center">
-</p>
-
+![Raindrop idea](images/fig1.png "Idea of Raindrop.")
 
 The main idea of Raindrop is to generate observation (a) and sensor (b) embeddings. Calculated sensor
 embeddings then serve as the basis for sample embeddings that can fed into a downstream task 
@@ -129,7 +126,7 @@ Raindrop is licensed under the MIT License.
 
 <!---
 Here we show all datasets (P19, P12, and PAM) used in our work,  and implementation codes for the proposed Raindrop model and all baselines. Some data files are not uploaded here due to size limitations, we will add downloadable links later.
-![Raindrop idea](images/fig1.png "Idea of Raindrop.")
+
 We will also add more details including descriptions of datasets and scripts, configuration, instruction for regenerating our results, miscellaneous, etc.
 -->
 
