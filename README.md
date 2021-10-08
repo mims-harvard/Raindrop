@@ -31,9 +31,7 @@ The main idea of Raindrop is to generate observation (a) and sensor (b) embeddin
 embeddings then serve as the basis for sample embeddings that can fed into a downstream task 
 such as classification. 
 
-<p align="center">
-<img src="https://github.com/mims-harvard/Raindrop/images/fig3.png" width="800" align="center">
-</p>
+![Raindrop observations](images/fig3.png "Raindrop observations.")
 
 **(a)** Raindrop generates observation embedding based on observed value, passes
 message to neighbor sensors, and generates observation embedding through inter-sensor dependencies. 
@@ -44,6 +42,28 @@ We aggregate arbitrary number of observation embeddings into a fixed-length sens
 while paying distinctive attentions to different observations. 
 We independently apply the processing procedure to all sensors.
 
+<br />
+We evaluate our model in comparison with the baselines in four different settings:
+
+**Setting 1: Classic time series classification.** We randomly split the dataset into training
+(80%), validation (10%), and test (10%) set. The indices of these splits are fixed across all methods.
+
+**Setting 2: Leave-fixed-sensors-out.** In this setting, we select a proportion of
+sensors, and set all their observations as zero in validation and testing set 
+(training samples are not changed). We mask out the most informative sensors and 
+the selected sensors are fixed across samples and models.
+
+**Setting 3: Leave-random-sensors-out.** Setting 3 is similar to Setting 2 except that the
+missing sensors in this setting are randomly selected instead of fixed. In each test sample, 
+we select a subset of sensors and regard them as missing through replacing all of their 
+observations with zeros.
+
+**Setting 4: Group-wise time series classification.** In this setting we split the data 
+into two groups, based on a specific static attribute. The first split attribute is *age*, 
+where we classify people into young (< 65 years) and old (>= 65 years) groups. 
+We also split patients into male and female by *gender* attribute. Given the split attribute, 
+we use one group as a train set and randomly split the other group into equally sized
+validation and test set.
 
 ## Datasets
 
@@ -107,26 +127,94 @@ pip install -r requirements.txt
 ```
 
 
-
 ## Running the code
 
-Text
+We provide ready-to-run code for our Raindrop model and four baselines: 
+Transformer, Trans-mean, GRU-D, SeFT and mTAND. 
+Starting from root directory *Raindrop*, you can run models as follows:
+
+- Raindrop
+```
+cd code
+python Raindrop.py
+```
+
+- Transformer
+```
+cd code/baselines
+python Transformer_baseline.py
+```
+
+- Trans-mean
+```
+cd code/baselines
+python Transformer_baseline.py --imputation mean
+```
+
+- GRU-D
+```
+cd code/baselines
+python GRU-D_baseline.py
+```
+
+- SeFT
+```
+cd code/baselines
+python SEFT_baseline.py
+```
+
+- mTAND
+```
+cd code/baselines/mTAND
+python mTAND_baseline.py
+```
+
+All algorithms can be run with named arguments, which allow the use of different settings from the paper:
+- *dataset*: Choose which dataset to use. Options: [P12, P19, PAMAP2].
+- *withmissingratio*: If True, missing ratio of sensors in test set ranges from 0.1 to 0.5. 
+If False, missing ratio is 0. Used in setting 2 and 3. Options: [True, False].
+- *splittype*: Choose how the data is split into train, validation and test set.
+Used in setting 4. Options: [random, age, gender]. 
+- *reverse*: Choose the order in setting 4. If True, use female/old for training. 
+If False, use male/young for training. Options: [True, False].
+- *feature_removal_level*: Choose between setting 1 (no_removal), 2 (set) and 3 (sample). 
+Options: [no_removal, set, sample]. 
+- *predictive_label*: Choose which label is predicted. Only for P12 dataset. Options: [mortality, LoS].
+- *imputation*: Imputation method to choose to fill in missing values. Only used in Transformer.
+Options: [no_imputation, mean, forward, cubic_spline].
+
 
 #### Examples
 
-Text
+In all cases beware the directory from which you run these commands (see *cd* commands above ).
+
+Run Raindrop model on P19 dataset in setting 1 (standard time series classification) 
+for predicting length of hospital stay, which is binarized with the threshold of 3 days:
+
+```
+python Raindrop.py --dataset P19 --withmissingratio False --splittype random --feature_removal_level no_removal --predictive_label LoS
+```
+
+Run Transformer baseline on P12 dataset in setting 2 (leave-fixed-sensors-out):
+
+```
+python Transformer_baseline.py --dataset P12 --withmissingratio True --splittype random --feature_removal_level set
+```
+
+Run SeFT baseline on PAM dataset in setting 3 (leave-random-sensors-out):
+
+```
+python SEFT_baseline.py --dataset PAMAP2 --withmissingratio True --splittype random --feature_removal_level sample
+```
+
+Run GRU-D baseline on P12 dataset in setting 4, where you train on younger than 65 and 
+test on aged 65 or more.
+
+```
+python GRU-D_baseline.py --dataset P12 --withmissingratio False --splittype age --feature_removal_level no_removal --reverse False
+```
 
 
 ## License
 
 Raindrop is licensed under the MIT License.
-
-
-
-
-<!---
-Here we show all datasets (P19, P12, and PAM) used in our work,  and implementation codes for the proposed Raindrop model and all baselines. Some data files are not uploaded here due to size limitations, we will add downloadable links later.
-
-We will also add more details including descriptions of datasets and scripts, configuration, instruction for regenerating our results, miscellaneous, etc.
--->
-
