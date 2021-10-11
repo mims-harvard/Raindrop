@@ -4,26 +4,20 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-# import os
-# os.add_dll_directory('c:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v10.1/bin')
-# os.add_dll_directory(os.path.dirname(__file__))
+import os
+os.add_dll_directory('c:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v10.1/bin')
+os.add_dll_directory(os.path.dirname(__file__))
 
 from torch.nn.parameter import Parameter
-# from torch_geometric.nn import TransformerConv
 from transformer_conv import TransformerConv
-from sklearn.metrics.pairwise import cosine_similarity
 
 
 from torch_geometric.nn import GINConv, global_add_pool
 from torch.nn import Sequential, Linear, BatchNorm1d, ReLU
 
-# """import HGT"""
-# from pyHGT.conv import *
-
-
 import warnings
 import numbers
-from torch.nn.init import xavier_normal_,xavier_uniform_
+from torch.nn.init import xavier_uniform_
 
 
 class PositionalEncodingTF(nn.Module):
@@ -33,19 +27,18 @@ class PositionalEncodingTF(nn.Module):
         self.d_model = d_model
         self.MAX = MAX
         self._num_timescales = d_model // 2
-        # self._num_timescales = d_model // 4
 
-    def getPE(self, P_time):  # P_time.shape = [215, 128]
+    def getPE(self, P_time):
         B = P_time.shape[1]
 
         P_time = P_time.float()
 
-        timescales = self.max_len ** np.linspace(0, 1, self._num_timescales)  # shape: (16,). A sequence from 1  to 215 with 16 elements
+        timescales = self.max_len ** np.linspace(0, 1, self._num_timescales)
 
-        times = torch.Tensor(P_time.cpu()).unsqueeze(2)  # shape: [215, 128, 1]  # max_len x B
+        times = torch.Tensor(P_time.cpu()).unsqueeze(2)
 
-        scaled_time = times / torch.Tensor(timescales[None, None, :])  # shape [215, 128, 16]
-        """Use a 32-D embedding to represent a single time point."""
+        scaled_time = times / torch.Tensor(timescales[None, None, :])
+        # Use a 32-D embedding to represent a single time point
         pe = torch.cat([torch.sin(scaled_time), torch.cos(scaled_time)], axis=-1)  # T x B x d_model
         pe = pe.type(torch.FloatTensor)
 
@@ -110,7 +103,7 @@ class TransformerModel(nn.Module):
         src = src + pe
 
         if static is not None:
-            emb = self.emb(static)  # emb.shape = [128, 64]. Linear layer: 9--> 64
+            emb = self.emb(static)
 
         # append context on front
         x = torch.cat([emb.unsqueeze(0), src], dim=0)
@@ -156,17 +149,13 @@ class TransformerModel2(nn.Module):
         self.transformer_encoder = TransformerEncoder(encoder_layers, nlayers)
 
         self.encoder = nn.Linear(d_inp, d_enc)
-        # self.d_model = d_model
 
         self.static = static
         if self.static:
             self.emb = nn.Linear(d_static, d_inp)
 
-        # d_fi = d_pe+d_enc + 16 + d_inp
-        # d_fi = d_pe+d_enc  + d_inp
-
         if static == False:
-            d_fi = d_enc + d_pe  # + d_inp  # if static is None
+            d_fi = d_enc + d_pe
         else:
             d_fi = d_enc + d_pe + d_inp
 
@@ -189,56 +178,39 @@ class TransformerModel2(nn.Module):
             self.emb.weight.data.uniform_(-initrange, initrange)
 
     def forward(self, src, static, times, lengths):
-        maxlen, batch_size = src.shape[0], src.shape[1]  # src.shape = [215, 128, 72]
+        maxlen, batch_size = src.shape[0], src.shape[1]
 
-        src = src[:, :, :int(src.shape[2] / 2)]  # remove the mask info
+        src = src[:, :, :int(src.shape[2] / 2)]
 
-        """Question: why 72 features (36 feature + 36 mask)?"""
-        src = self.encoder(src) #* math.sqrt(self.d_model)  # linear layer: 72 --> 32
+        src = self.encoder(src)
 
-
-        pe = self.pos_encoder(times)  # times.shape = [215, 128], the values are hours.
-        # pe.shape = [215, 128, 32]
-
-        """Here are two options: plus or concat"""
-        #         src = src + pe
-        src = torch.cat([pe, src], axis=2)  # shape: [215, 128, 64]
-
+        pe = self.pos_encoder(times)
+        src = torch.cat([pe, src], axis=2)
 
         src = self.dropout(src)
 
         if static is not None:
-            emb = self.emb(static)  # emb.shape = [128, 64]. Linear layer: 9--> 64
+            emb = self.emb(static)
 
-        # append context on front
-        # """215-D for time series and 1-D for static info"""
         x = src
 
-        """mask out the all-zero rows. """
-        # mask = torch.arange(maxlen + 1)[None, :] >= (lengths.cpu()[:, None] + 1)
+        # mask out the all-zero rows
         mask = torch.arange(maxlen)[None, :] >= (lengths.cpu()[:, None])
-        mask = mask.squeeze(1).cuda()  # shape: [128, 216]
+        mask = mask.squeeze(1).cuda()
 
-        output = self.transformer_encoder(x, src_key_padding_mask=mask) # output.shape: [216, 128, 64]
+        output = self.transformer_encoder(x, src_key_padding_mask=mask)
 
-        """What if no transformer? just MLP, the performance is still good!!!"""
-        # output = x
-
-        # masked aggregation: this really matters.
-        mask2 = mask.permute(1, 0).unsqueeze(2).long()  # [216, 128, 1]
+        mask2 = mask.permute(1, 0).unsqueeze(2).long()
         if self.aggreg == 'mean':
             lengths2 = lengths.unsqueeze(1)
             output = torch.sum(output * (1 - mask2), dim=0) / (lengths2 + 1)
         elif self.aggreg == 'max':
             output, _ = torch.max(output * ((mask2 == 0) * 1.0 + (mask2 == 1) * -10.0), dim=0)
 
-        # output = torch.sum(output , dim=0) / (lengths.unsqueeze(1) + 1)
-
         # feed through MLP
-        """concat static"""
         if static is not None:
-            output = torch.cat([output, emb], dim=1)  # [128, 36*5+9] # emb with dim: d_model
-        output = self.mlp(output)  # two linears: 64-->64-->2
+            output = torch.cat([output, emb], dim=1)
+        output = self.mlp(output)
         return output
 
 
@@ -261,13 +233,8 @@ class SEFT(nn.Module):
         from torch.nn import TransformerEncoder, TransformerEncoderLayer
         self.model_type = 'Transformer'
 
-        # d_pe = int(perc * d_model)
-        # d_enc = d_model - d_pe
         d_pe = 16
         d_enc = d_inp
-
-        # d_pe = 16
-
 
         self.pos_encoder = PositionalEncodingTF(d_pe, max_len, MAX)
         self.pos_encoder_value = PositionalEncodingTF(d_pe, max_len, MAX)
@@ -276,9 +243,7 @@ class SEFT(nn.Module):
         self.linear_value = nn.Linear(1, 16)
         self.linear_sensor = nn.Linear(1, 16)
 
-        # self.d_K = 2*(d_pe+2)  # 36 = 2*(16+1+1), 16 is positional encoding dimension
         self.d_K = 2 * (d_pe+ 16+16)
-
 
         encoder_layers = TransformerEncoderLayer(self.d_K, 1, nhid, dropout)
         self.transformer_encoder = TransformerEncoder(encoder_layers, nlayers)
@@ -286,21 +251,16 @@ class SEFT(nn.Module):
         encoder_layers_f_prime = TransformerEncoderLayer(int(self.d_K//2), 1, nhid, dropout)
         self.transformer_encoder_f_prime = TransformerEncoder(encoder_layers_f_prime, 2)
 
-        # self.encoder = nn.Linear(d_inp, d_enc)
-        # self.d_model = d_model
-
         self.emb = nn.Linear(d_static, 16)
 
         self.proj_weight = Parameter(torch.Tensor(self.d_K, 128))
 
-        self.lin_map = nn.Linear(self.d_K, 128) # why this linear make it worse? All
-        # self.lin_map = nn.Linear(4, 128) # no pe, only values
+        self.lin_map = nn.Linear(self.d_K, 128)
 
         d_fi = 128 + 16
 
-        # d_fi = d_inp
         if static == False:
-            d_fi = 128  # + d_inp  # if static is None
+            d_fi = 128
         else:
             d_fi = 128 + d_pe
         self.mlp = nn.Sequential(
@@ -317,7 +277,6 @@ class SEFT(nn.Module):
 
     def init_weights(self):
         initrange = 1e-10
-        # self.encoder.weight.data.uniform_(-initrange, initrange)
         self.emb.weight.data.uniform_(-initrange, initrange)
         self.linear_value.weight.data.uniform_(-initrange, initrange)
         self.linear_sensor.weight.data.uniform_(-initrange, initrange)
@@ -325,647 +284,52 @@ class SEFT(nn.Module):
         xavier_uniform_(self.proj_weight)
 
     def forward(self, src, static, times, lengths):
-        maxlen, batch_size = src.shape[0], src.shape[1]  # src.shape = [215, 128, 72]
+        maxlen, batch_size = src.shape[0], src.shape[1]
 
-        """Decompose into instances: why 72 features (36 feature + 36 mask)"""
-        src = src.permute(1, 0,2) # shape [128, 215, 36+36]
-        # fea = src[:, :, :36]  # [128, 215, 36]
+        src = src.permute(1, 0,2)
         fea = src[:, :, :int(src.shape[2]/2)]
-        # mask = src[:, :, 36:]
 
-        output = torch.zeros((batch_size, self.d_K)).cuda()  # 68 = 2*(32+1+1)
-        # output = torch.ones((batch_size, 4)).cuda()
+        output = torch.zeros((batch_size, self.d_K)).cuda()
         for i in range(batch_size):
             nonzero_index = fea[i].nonzero(as_tuple=False)
-            if nonzero_index.shape[0]==0:
+            if nonzero_index.shape[0] == 0:
                 continue
             values = fea[i][nonzero_index[:,0], nonzero_index[:,1]] # v in SEFT paper
-            time_index = nonzero_index[:,0]
+            time_index = nonzero_index[:, 0]
             time_sequence = times[:, i]
             time_points = time_sequence[time_index]  # t in SEFT paper
             pe_ = self.pos_encoder(time_points.unsqueeze(1)).squeeze(1)
-            # pe_ = torch.zeros(pe_.shape).cuda()
 
-            variable = nonzero_index[:,1] # the dimensions of variables. The m value in SEFT paper.
+            variable = nonzero_index[:, 1]  # the dimensions of variables. The m value in SEFT paper.
 
             unit = torch.cat([pe_, values.unsqueeze(1), variable.unsqueeze(1)], dim=1)
 
-            # """positional encoding"""  AUROC ~0.86 Why positional encoding works?
-            # values_ = self.pos_encoder_value(values.unsqueeze(1)).squeeze(1)
             variable_ = self.pos_encoder_sensor(variable.unsqueeze(1)).squeeze(1)
 
-            """linear mapping""" # AUROC~0.8
-            values_ =  self.linear_value(values.float().unsqueeze(1)).squeeze(1)
-            # variable_ = self.linear_sensor(variable.float().unsqueeze(1)).squeeze(1)
-
-            """Nonlinear transformation""" # AUROC ~0.8
-            # values_ =  F.relu(self.linear_value(values.float().unsqueeze(1))).squeeze(1)
-            # variable_ =  F.relu(self.linear_sensor(variable.float().unsqueeze(1))).squeeze(1)
+            values_ = self.linear_value(values.float().unsqueeze(1)).squeeze(1)
 
             unit = torch.cat([pe_, values_, variable_], dim=1)
-            # """Add Normalization across samples here, to make all 48-dimensions are in similar scale"""
-            # unit = F.normalize(unit, dim=1)
-
-            # """use 2-layer transformer to get f'"""
-            # trans_unit = self.transformer_encoder_f_prime(unit.unsqueeze(1))
-            # f_prime = torch.mean(trans_unit, dim=0) # [435, 34] --> [1,34]
 
             f_prime = torch.mean(unit, dim=0)
 
             x = torch.cat([f_prime.repeat(unit.shape[0], 1), unit], dim=1)
-            # x = torch.cat([unit, unit], dim=1)
 
-            x = x.unsqueeze(1) #.repeat(1,2,1)  # shape[469, 2, 68]
-            # output_unit = self.transformer_encoder(x)
+            x = x.unsqueeze(1)
 
             output_unit = x
-
             output_unit = torch.mean(output_unit, dim=0)
-            output[i,:] = output_unit
+            output[i, :] = output_unit
 
-        output = self.lin_map(output) # dimension: 68-->32
+        output = self.lin_map(output)
 
-        # emb = self.emb(static)  # Linear layer: 9--> 16
         if static is not None:
-            emb = self.emb(static)  # emb.shape = [128, 64]. Linear layer: 9--> 64
-
+            emb = self.emb(static)
 
         # feed through MLP
-        # output = torch.cat([ output, emb], dim=1)  # x.shape: [216, 128, 64]
         if static is not None:
-            output = torch.cat([output, emb], dim=1) # [128, 36*5+9] # emb with dim: d_model
-        # output = torch.mean(fea, dim=1)
-        output = self.mlp(output)  # two linears: 64-->64-->2
-        # output = torch.nan_to_num(output)
+            output = torch.cat([output, emb], dim=1)
+        output = self.mlp(output)
         return output
-
-
-# class HGT_latconcat(nn.Module):
-#     ""
-#     """Implement the raindrop stratey one by one."""
-#     """ Transformer model with context embedding, aggregation, split dimension positional and element embedding
-#     Inputs:
-#         d_inp = number of input features
-#         d_model = number of expected model input features
-#         nhead = number of heads in multihead-attention
-#         nhid = dimension of feedforward network model
-#         dropout = dropout rate (default 0.1)
-#         max_len = maximum sequence length
-#         MAX  = positional encoder MAX parameter
-#         n_classes = number of classes
-#     """
-#
-#     def __init__(self, d_inp=36, d_model=64, nhead=4, nhid=128, nlayers=2, dropout=0.3, max_len=215, d_static=9,
-#                  MAX=100, perc=0.5, aggreg='mean', n_classes=2):
-#         super(HGT_latconcat, self).__init__()
-#         from torch.nn import TransformerEncoder, TransformerEncoderLayer
-#         self.model_type = 'Transformer'
-#
-#
-#         """d_inp, d_model, nhead, nhid, nlayers, dropout, max_len,
-#             (36, 64, 4, 128, 2, 0.3, 215)
-#             d_static, MAX, 0.5, aggreg, n_classes,
-#             (9, 100, 0.5, 'mean', 2) """
-#
-#         d_pe = int(perc * d_model)
-#         d_enc = d_model - d_pe
-#
-#         self.pos_encoder = PositionalEncodingTF(d_pe, max_len, MAX)
-#
-#         encoder_layers = TransformerEncoderLayer(int(d_model/2), nhead, nhid, dropout)
-#         self.transformer_encoder = TransformerEncoder(encoder_layers, nlayers)
-#
-#         """HGT layers"""
-#         self.gcs = nn.ModuleList()
-#         conv_name = 'dense_hgt' #  'hgt' # 'dense_hgt',  'gcn', 'dense_hgt'
-#         num_types, num_relations = 36, 1
-#         nhead_HGT = 5  # when using HGT, nhead should be times of max_len (i.e., feature dimension), so we set it as 5
-#         for l in range(nlayers):
-#             self.gcs.append(GeneralConv(conv_name, 215, 215, num_types, num_relations, nhead_HGT, dropout,
-#                                         use_norm = False, use_RTE = False))
-#         self.edge_type_train = torch.ones([36*36*2], dtype= torch.int64) # 2 times fully-connected graph
-#         self.adj = Parameter(torch.Tensor(36, 36))
-#
-#
-#         """For GIN"""
-#         in_D, hidden_D, out_D = 215, 215, 1  # each timestamp input 1 value, map to 64-D feature, output is 64
-#         self.GIN1 = GINConv(
-#             Sequential(Linear(in_D, hidden_D), BatchNorm1d(hidden_D), ReLU(),
-#                        Linear(hidden_D, hidden_D), ReLU()))
-#         self.GIN2 = GINConv(
-#             Sequential(Linear(in_D, hidden_D), BatchNorm1d(hidden_D), ReLU(),
-#                        Linear(hidden_D, hidden_D), ReLU()))
-#
-#
-#
-#
-#         self.encoder = nn.Linear(d_inp, d_enc)
-#         self.d_model = d_model
-#
-#         self.emb = nn.Linear(d_static, d_model)
-#
-#         self.mlp = nn.Sequential(
-#             nn.Linear(d_model, d_model),
-#             nn.ReLU(),
-#             nn.Linear(d_model, n_classes),
-#         )
-#
-#         self.aggreg = aggreg
-#
-#         self.relu = nn.ReLU()
-#         self.dropout = nn.Dropout(dropout)
-#         self.init_weights()
-#
-#     def init_weights(self):
-#         initrange = 1e-10
-#         self.encoder.weight.data.uniform_(-initrange, initrange)
-#         self.emb.weight.data.uniform_(-initrange, initrange)
-#         glorot(self.adj)
-#         # self.adj.uniform_(0, 0.5)  # initialize as 0-0.5
-#
-#     def forward(self, src, static, times, lengths):
-#         """Input to the model:
-#         src = P: [215, 128, 36] : 36 nodes, 128 samples, each sample each channel has a feature with 215-D vector
-#         static = Pstatic: [128, 9]: this one doesn't matter; static features
-#         times = Ptime: [215, 128]: the timestamps
-#        lengths = lengths: [128]: the number of nonzero recordings.
-#         """
-#         maxlen, batch_size = src.shape[0], src.shape[1]  # src.shape = [215, 128, 72]
-#
-#         """Question: why 72 features (36 feature + 36 mask)?"""
-#         src = self.encoder(src) * math.sqrt(self.d_model)  # linear layer: 72 --> 32
-#
-#         pe = self.pos_encoder(times)  # times.shape = [215, 128], the values are hours.
-#         # pe.shape = [215, 128, 32]
-#
-#         """Use late concat"""
-#         src = self.dropout(src)  # [215, 128, 36]
-#         emb = self.emb(static)  # emb.shape = [128, 64]. Linear layer: 9--> 64
-#
-#
-#
-#         # append context on front
-#         """215-D for time series and 1-D for static info"""
-#         # x = torch.cat([emb.unsqueeze(0), src], dim=0)  # x.shape: [216, 128, 64]
-#         # """If don't concat static info:"""
-#         x = src  # [215, 128, 36]
-#
-#
-#         """mask out the all-zero rows. """
-#         mask = torch.arange(maxlen + 1)[None, :] >= (lengths.cpu()[:, None] + 1)
-#         mask = mask.squeeze(1).cuda()  # shape: [128, 216]
-#
-#         """Using non-graph tranformer"""
-#         # # use mask[:, 1:] to transfer it from [128, 216] to [128, 215]
-#         # output = self.transformer_encoder(x, src_key_padding_mask=mask[:, 1:]) # output.shape: [216, 128, 64]
-#
-#
-#         adj = self.adj.triu() + self.adj.triu(1).transpose(-1, -2) # keep adj symmetric!
-#         edge_index_direct = torch.nonzero(adj).T
-#         edge_index_inverse = torch.cat((edge_index_direct[1].unsqueeze(0), edge_index_direct[0].unsqueeze(0)),dim=0)
-#         edge_index = torch.cat((edge_index_direct, edge_index_inverse), dim=1)  # shape: [2, 2592]
-#         """Where to add the edge weights???"""
-#         # edge_index[0]
-#         # source node type: duplicate it for each sample.
-#         sample_nodetype =  torch.range(0, 35, dtype=torch.int64)  # node types are from 0 to 35
-#         source_node_type = sample_nodetype.repeat(x.shape[1]).to(x.device)
-#
-#         """If use HGT: take x and edgeindex as input"""
-#         # x = x.permute(1, 2, 0).reshape([-1, 215]) # x: [215, 128, 36] --> [128*36, 215]
-#         # for gc in self.gcs:
-#         #     # train_dataset = dataset[BATCH_SIZE:]
-#         #     # test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE)
-#         #     x = gc(x,  edge_index=edge_index, node_type=source_node_type,
-#         #            edge_type=self.edge_type_train.to(x.device), edge_time=None)
-#
-#
-#         """using GIN"""
-#         x = x.permute(1, 2, 0).reshape([-1, 215])  # x: [215, 128, 36] --> [128*36, 215]
-#         x = self.GIN1(x, edge_index)
-#         x = self.GIN2(x, edge_index) # output is [128*36, 215]
-#
-#
-#         output = x
-#         output = output.reshape([-1, 36, 215]).permute(2, 0,1)    # reshape: [128 * 36, 215] --> [215, 128, 36]
-#
-#         """Late concat"""
-#         output_withtime = torch.cat([pe, output], axis=2)  # shape: [215, 128, 72]
-#         output = torch.cat([emb.unsqueeze(0), output_withtime], dim=0)  # x.shape: [216, 128, 72]
-#
-#
-#         # masked aggregation
-#         mask2 = mask.permute(1, 0).unsqueeze(2).long()  # [216, 128, 1]
-#         if self.aggreg == 'mean':
-#             lengths2 = lengths.unsqueeze(1)
-#             output = torch.sum(output * (1 - mask2), dim=0) / (lengths2 + 1)
-#         elif self.aggreg == 'max':
-#             output, _ = torch.max(output * ((mask2 == 0) * 1.0 + (mask2 == 1) * -10.0), dim=0)
-#
-#         # feed through MLP
-#         output = self.mlp(output)  # two linears: 64-->64-->2
-#         return output
-
-class LSTMCell(nn.Module):
-    """
-    An implementation of Hochreiter & Schmidhuber:
-    'Long-Short Term Memory' cell.
-    http://www.bioinf.jku.at/publications/older/2604.pdf
-
-    """
-    # Originally from https://github.com/emadRad/lstm-gru-pytorch/blob/master/lstm_gru.ipynb
-
-    def __init__(self, input_size, hidden_size, bias=True):
-        super(LSTMCell, self).__init__()
-        self.input_size = input_size
-        self.hidden_size = hidden_size
-        self.bias = bias
-        self.x2h = nn.Linear(input_size, 4 * hidden_size, bias=bias)
-        self.h2h = nn.Linear(hidden_size, 4 * hidden_size, bias=bias)
-        self.reset_parameters()
-
-    def reset_parameters(self):
-        std = 1.0 / math.sqrt(self.hidden_size)
-        for w in self.parameters():
-            w.data.uniform_(-std, std)
-
-    def forward(self, x, hidden):
-        hx, cx = hidden  # shape][128, 36]
-
-        # x = x.view(-1, x.size(1)) # x.shape: [36, 215]
-
-        # x = x.reshape([-1, x.size(0)]) # making x.shape: [215, 36]
-
-        gates = self.x2h(x) + self.h2h(hx)
-
-        gates = gates.squeeze()
-
-        ingate, forgetgate, cellgate, outgate = gates.chunk(4, 1)
-
-        ingate = F.sigmoid(ingate)
-        forgetgate = F.sigmoid(forgetgate)
-        cellgate = F.tanh(cellgate)
-        outgate = F.sigmoid(outgate)
-
-        cy = torch.mul(cx, forgetgate) + torch.mul(ingate, cellgate)
-
-        hy = torch.mul(outgate, F.tanh(cy))
-
-        return (hy, cy)
-
-# class LSTM_decomposedGIN(nn.Module):
-#     ""
-#     """Implement the raindrop stratey one by one."""
-#     """ Transformer model with context embedding, aggregation, split dimension positional and element embedding
-#     Inputs:
-#         d_inp = number of input features
-#         d_model = number of expected model input features
-#         nhead = number of heads in multihead-attention
-#         nhid = dimension of feedforward network model
-#         dropout = dropout rate (default 0.1)
-#         max_len = maximum sequence length
-#         MAX  = positional encoder MAX parameter
-#         n_classes = number of classes
-#     """
-#
-#     def __init__(self, d_inp=36, d_model=64, nhead=4, nhid=128, nlayers=2, dropout=0.3, max_len=215, d_static=9,
-#                  MAX=100, perc=0.5, aggreg='mean', n_classes=2):
-#         super(LSTM_decomposedGIN, self).__init__()
-#         from torch.nn import TransformerEncoder, TransformerEncoderLayer
-#         self.model_type = 'Transformer'
-#
-#         """d_inp, d_model, nhead, nhid, nlayers, dropout, max_len,
-#             (36, 64, 4, 128, 2, 0.3, 215)
-#             d_static, MAX, 0.5, aggreg, n_classes,
-#             (9, 100, 0.5, 'mean', 2) """
-#
-#         d_pe = int(perc * d_model)
-#         d_enc = d_model - d_pe
-#
-#         self.pos_encoder = PositionalEncodingTF(d_pe, max_len, MAX)
-#
-#         encoder_layers = TransformerEncoderLayer(int(d_model / 2), nhead, nhid, dropout)
-#         self.transformer_encoder = TransformerEncoder(encoder_layers, nlayers)
-#
-#         """HGT layers"""
-#         self.gcs = nn.ModuleList()
-#         conv_name = 'dense_hgt'  # 'hgt' # 'dense_hgt',  'gcn', 'dense_hgt'
-#         num_types, num_relations = 36, 1
-#         nhead_HGT = 5  # when using HGT, nhead should be times of max_len (i.e., feature dimension), so we set it as 5
-#         for l in range(nlayers):
-#             self.gcs.append(GeneralConv(conv_name, 215, 215, num_types, num_relations, nhead_HGT, dropout,
-#                                         use_norm=False, use_RTE=False))
-#         self.edge_type_train = torch.ones([36 * 36 * 2], dtype=torch.int64).cuda()  # 2 times fully-connected graph
-#         # self.adj = Parameter(torch.Tensor(36, 36))  # random initialize edges
-#
-#         self.adj = torch.ones([36, 36]).cuda()  # complete graph
-#
-#         """For GIN"""
-#         in_D, hidden_D, out_D = 1, 1, 1  # each timestamp input 1 value, map to 64-D feature, output is 64
-#         self.GINstep1 = GINConv(
-#             Sequential(Linear(in_D, hidden_D), BatchNorm1d(hidden_D), ReLU(),
-#                        Linear(hidden_D, hidden_D), ReLU()))
-#         self.GIN_middlesteps = GINConv(
-#             Sequential(Linear(hidden_D, hidden_D), BatchNorm1d(hidden_D), ReLU(),
-#                        Linear(hidden_D, hidden_D), ReLU()))
-#         self.dim = hidden_D
-#
-#         self.GINmlp = nn.Sequential(
-#             nn.Linear(self.dim + d_static, self.dim + d_static),  # self.dim for observation,d_static for static info
-#             nn.ReLU(),
-#             nn.Linear(self.dim + d_static, n_classes),
-#         )
-#
-#         """With LSTM"""
-#         self.input_dim, self.hidden_dim, self.n_layer = 36, 128, 1
-#         self.lstm = LSTMCell(self.input_dim, self.hidden_dim)  # our own LSTM
-#
-#         # self.lstm_layer = nn.LSTM(  # standard nn LSTM
-#         #     input_size=36,
-#         #     hidden_size=36,         # LSTM hidden unit
-#         #     num_layers=1,           # number of LSTM layer
-#         #     bias=True,
-#         #     batch_first=False,       # if True input & output will has batch size as 1s dimension. e.g. (batch, segment_length, no_feature)
-#         #     # if False, the input with shape (segment_length, batch, no_feature), which is (215, 128, 36) in our case
-#         # )
-#
-#         d_final = self.hidden_dim + 9  # self.hidden_dim is output of LSTM, 9 is d_static
-#         self.mlp_static = nn.Sequential(
-#             nn.Linear(d_final, d_final),
-#             nn.ReLU(),
-#             nn.Linear(d_final, n_classes),
-#         )
-#
-#         #######################
-#
-#         self.encoder = nn.Linear(d_inp, d_enc)
-#         self.d_model = d_model
-#
-#         self.emb = nn.Linear(d_static, d_model)
-#
-#         self.mlp = nn.Sequential(
-#             nn.Linear(d_model, d_model),
-#             nn.ReLU(),
-#             nn.Linear(d_model, n_classes),
-#         )
-#
-#         self.aggreg = aggreg
-#
-#         self.relu = nn.ReLU()
-#         self.dropout = nn.Dropout(dropout)
-#         self.init_weights()
-#
-#     def init_weights(self):
-#         initrange = 1e-10
-#         self.encoder.weight.data.uniform_(-initrange, initrange)
-#         self.emb.weight.data.uniform_(-initrange, initrange)
-#         glorot(self.adj)
-#         # self.adj.uniform_(0, 0.5)  # initialize as 0-0.5
-#
-#     def forward(self, src, static, times, lengths):
-#         """Input to the model:
-#         src = P: [215, 128, 36] : 36 nodes, 128 samples, each sample each channel has a feature with 215-D vector
-#         static = Pstatic: [128, 9]: this one doesn't matter; static features
-#         times = Ptime: [215, 128]: the timestamps
-#        lengths = lengths: [128]: the number of nonzero recordings.
-#         """
-#         maxlen, batch_size = src.shape[0], src.shape[1]  # src.shape = [215, 128, 72]
-#
-#         """Question: why 72 features (36 feature + 36 mask)?"""
-#         src = self.encoder(src) * math.sqrt(self.d_model)  # linear layer: 72 --> 32
-#
-#         pe = self.pos_encoder(times)  # times.shape = [215, 128], the values are hours.
-#         # pe.shape = [215, 128, 32]
-#
-#         """Use late concat"""
-#         src = self.dropout(src)  # [215, 128, 36]
-#         emb = self.emb(static)  # emb.shape = [128, 64]. Linear layer: 9--> 64
-#
-#         # append context on front
-#         """215-D for time series and 1-D for static info"""
-#         # x = torch.cat([emb.unsqueeze(0), src], dim=0)  # x.shape: [216, 128, 64]
-#         # """If don't concat static info:"""
-#         x = src  # [215, 128, 36]
-#
-#         """mask out the all-zero rows. """
-#         mask = torch.arange(maxlen + 1)[None, :] >= (lengths.cpu()[:, None] + 1)
-#         mask = mask.squeeze(1).cuda()  # shape: [128, 216]
-#
-#         # # If use tranformer:
-#         # # use mask[:, 1:] to transfer it from [128, 216] to [128, 215]
-#         # output = self.transformer_encoder(x, src_key_padding_mask=mask[:, 1:]) # output.shape: [216, 128, 64]
-#
-#         """If use HGT: take x and edgeindex as input"""
-#         adj = self.adj.triu() + self.adj.triu(1).transpose(-1, -2)  # keep adj symmetric!
-#         edge_index_direct = torch.nonzero(adj).T
-#         edge_index_inverse = torch.cat((edge_index_direct[1].unsqueeze(0), edge_index_direct[0].unsqueeze(0)), dim=0)
-#         edge_index = torch.cat((edge_index_direct, edge_index_inverse), dim=1)  # shape: [2, 2592]
-#         """Where to add the edge weights???"""
-#         # edge_index[0]
-#         # source node type: duplicate it for each sample.
-#         sample_nodetype = torch.range(0, 35, dtype=torch.int64)  # node types are from 0 to 35
-#         source_node_type = sample_nodetype.repeat(x.shape[1]).to(x.device)
-#
-#         """Using GIN with raindrop"""
-#         x = x.permute(1, 2, 0)  # x: [215, 128, 36] --> [128, 36, 215]
-#         # x_step1 = x[:, :, 0].reshape([-1, 1])
-#         # step_results = self.GINstep1 (x_step1, edge_index=edge_index)
-#
-#         output = torch.zeros([215, src.shape[1], 36]).cuda()  # shape[215, 128, 36]
-#         for stamp in range(0, x.shape[-1]):
-#             stepdata = x[:, :, stamp].reshape([-1, 1])  # take [128,36,1 ] as one slice and reshape to [128*36, 1]
-#             stepdata = self.GINstep1(stepdata, edge_index=edge_index)
-#
-#             stepdata = stepdata.reshape([-1, 36]).unsqueeze(0)  # average in the middle dimension
-#             output[stamp] = stepdata  # the final output shape is [215, 128, 36] after loop
-#
-#         """LSTM layer"""
-#         # # standard LSTM
-#         # r_out, (h_n, h_c) = self.lstm_layer(output.float(), None) # output shape: [215, 128, 36]
-#
-#         # our own LSTM
-#         # output = output.permute(1, 0, 2) # [215, 128, 36] --> [128, 215, 36]
-#         h0 = Variable(torch.zeros(self.n_layer, batch_size, self.hidden_dim).cuda())
-#         c0 = Variable(torch.zeros(self.n_layer, batch_size, self.hidden_dim).cuda())
-#
-#         r_out = torch.zeros([output.shape[0], batch_size, self.hidden_dim]).cuda()  # shape[215, 128, 36]
-#         cn = c0[0, :, :]
-#         hn = h0[0, :, :]
-#         for seq in range(output.shape[0]):  # update in each time step
-#             hn, cn = self.lstm(output[seq, :, :], (hn, cn))
-#             # r_out.append(hn)
-#             r_out[seq] = hn  # the final output shape of r_out is [215, 128, 36]
-#
-#
-#         """ masked aggregation"""
-#         mask2 = mask.permute(1, 0).unsqueeze(2).long()  # [216, 128, 1]
-#         mask2 = mask2[1:]
-#         if self.aggreg == 'mean':
-#             lengths2 = lengths.unsqueeze(1)
-#             output = torch.sum(r_out * (1 - mask2), dim=0) / (lengths2 + 1)
-#
-#         """concat static"""
-#         output = torch.cat([output, static], dim=1)  # [128, 36+9]
-#         output = self.mlp_static(output)
-#
-#
-#         return output
-
-class LSTMCell_withtimestamp(nn.Module):
-    """
-    An implementation of Hochreiter & Schmidhuber:
-    'Long-Short Term Memory' cell.
-    http://www.bioinf.jku.at/publications/older/2604.pdf
-
-    """
-    # Originally from https://github.com/emadRad/lstm-gru-pytorch/blob/master/lstm_gru.ipynb
-
-    def __init__(self, input_size, hidden_size, bias=True):
-        super(LSTMCell_withtimestamp, self).__init__()
-        self.input_size = input_size
-        self.hidden_size = hidden_size
-        self.bias = bias
-        self.x2h = nn.Linear(input_size, 4 * hidden_size, bias=bias)
-        self.h2h = nn.Linear(hidden_size, 4 * hidden_size, bias=bias)
-        self.reset_parameters()
-
-    def reset_parameters(self):
-        std = 1.0 / math.sqrt(self.hidden_size)
-        for w in self.parameters():
-            w.data.uniform_(-std, std)
-
-    def forward(self, x, hidden, mask, positional_timestamp):
-        hx, cx = hidden  # shape: [128, 36]
-        # positional_timestamp.shape: [128, 36]
-        x = torch.cat((x, positional_timestamp), dim=1)
-
-        """Masked-LSTM: h_t = m*h_t +(1-m)*h_{t-1}, etc. 
-        If mask==0, then the h_t and c_t don't update"""
-
-        # x = x.view(-1, x.size(1)) # x.shape: [36, 215]
-        # x = x.reshape([-1, x.size(0)]) # making x.shape: [215, 36]
-
-        gates = self.x2h(x) + self.h2h(hx)
-
-        gates = gates.squeeze()
-
-        ingate, forgetgate, cellgate, outgate = gates.chunk(4, 1)
-
-        ingate = F.sigmoid(ingate)
-        forgetgate = F.sigmoid(forgetgate)
-        cellgate = F.tanh(cellgate)
-        outgate = F.sigmoid(outgate)
-
-        cy = torch.mul(cx, forgetgate) + torch.mul(ingate, cellgate)
-        hy = torch.mul(outgate, F.tanh(cy))
-
-        """Rain drop"""
-        m = mask  # mask.shape: [128, 36]
-        # Increase dimension from 1 to n_dim. adjust it by self.hidden_dim in Raindrop class.
-        n_dim = int(hy.shape[-1]/m.shape[-1])  # n_dim is the dimension of each node's feature in one time stamp.
-        m = torch.repeat_interleave(m, n_dim, dim=1) # repeat each element for n dimes
-        cy_mask = m*cy + (1-m)*cx
-        hy_mask = m*hy + (1-m)* hx
-        return (hy_mask, cy_mask)
-
-        # return (hy, cy)
-
-
-class Transformer_P12(nn.Module):
-    """
-    Transformer model (only encoder part) for time series classification of P12 dataset.
-    """
-    def __init__(self, d_model, max_len, n_heads, dim_feedforward, activation='relu', dropout=0.1):
-        """
-        Initialize the model instance.
-
-        :param d_model: dimension of a single sequential instance (number of features per instance)
-        :param max_len: maximum length of the sequence (time series)
-        :param n_heads: number of attention heads
-        :param dim_feedforward: dimension of the feedforward network model
-        :param activation: activation function of intermediate layer
-        :param dropout: dropout rate
-        """
-        super().__init__()
-
-        # # lose the notion of exact time observations, positional encoding done beforehand
-        # self.pos_enc = PositionalEncoding(d_model, max_len)
-
-        self.max_len = max_len
-
-        # starting dropout from positional encoding
-        self.pos_enc_dropout = nn.Dropout(p=dropout)
-
-        new_d_model = 64
-        self.linear_embedding = nn.Linear(d_model, new_d_model)   # embed 36 features into 64 to be consistent with other baselines
-
-        self.encoder_layer = nn.TransformerEncoderLayer(d_model=new_d_model, nhead=n_heads, dim_feedforward=dim_feedforward,
-                                                        dropout=dropout, activation=activation, batch_first=True)
-
-        self.static_feed_forward = nn.Linear(9, new_d_model)     # transform 9 static features to longer vector
-
-        self.feed_forward = nn.Sequential(
-            nn.Linear(new_d_model, new_d_model),
-            nn.ReLU(),
-            nn.Linear(new_d_model, 2)
-            # nn.Softmax(dim=1)   # the softmax function is already included in cross-entropy loss
-        )
-
-        # self.init_weights()
-
-    def init_weights(self):
-        init_range = 0.01
-        self.encoder_layer.weight.data.uniform_(-init_range, init_range)
-
-    def create_padding_mask(self, X_time):
-        """
-        Create padding mask of the size (batch, seq_len).
-
-        :param X_time: times, when observations were measured; size = (batch, seq_len, 1)
-        :return: return the BoolTensor mask with the size (batch, seq_len) and time_length
-        """
-        time_length = [np.where(times == 0)[0][1] if np.where(times == 0)[0][0] == 0 else np.where(times == 0)[0][0] for
-                       times in X_time]  # list, len(time_length)=len(X_time)
-        mask = torch.zeros([len(X_time), self.max_len])
-        for i in range(len(X_time)):
-            mask[i, time_length[i]:] = torch.ones(self.max_len - time_length[i])
-        mask = mask.type(torch.BoolTensor)
-        return mask, time_length
-
-    def forward(self, X_features, X_static, X_time):
-        """
-        Feed-forward process of the network.
-
-        :param X_features: input of time series features (with already added positional encoding)
-        :param X_static: input of static features
-        :param X_time: times, when observations were measured; size = (batch, seq_len, 1)
-        :return: binary values at the output layer
-        """
-        # create mask for zero padding
-        mask, time_length = self.create_padding_mask(X_time)
-
-        # apply dropout for output from positional encoding
-        x = self.pos_enc_dropout(X_features)
-
-        # embed 36 features into 64 to be consistent with other baselines
-        x = self.linear_embedding(x)
-
-        # pass through transformer encoder layer
-        x = self.encoder_layer(x, src_key_padding_mask=mask)
-
-        # concatenate static features to the matrix (add additional row with the size 64)
-        static_x = self.static_feed_forward(X_static).unsqueeze(1)
-        x = torch.cat((x, static_x), dim=1)
-
-        # # take the mean of all time steps (rows) with additional row for static features; output size = (batch_size, 64)
-        # x = torch.mean(x, 1)
-
-        # take the masked mean of all time steps (rows) with additional row for static features; output size = (batch_size, 64)
-        mask = torch.cat((mask, torch.ones((x.size()[0], 1), dtype=torch.bool)), dim=1).unsqueeze(2).long()
-        time_length = torch.FloatTensor(time_length).unsqueeze(1)
-        x = torch.sum(x * (1 - mask), dim=1) / (time_length + 1)    # masked aggregation
-
-        # pass through fully-connected part to lower dimension to 2 (binary classification)
-        return self.feed_forward(x)
 
 
 class GRUD(torch.nn.Module):
@@ -977,7 +341,6 @@ class GRUD(torch.nn.Module):
         self.output_size = output_size
         self.num_layers = num_layers
         self.zeros = torch.autograd.Variable(torch.zeros(input_size))
-        # self.x_mean = torch.autograd.Variable(torch.tensor(x_mean))
         self.x_mean = x_mean.clone().detach().requires_grad_(True)
         self.bias = bias
         self.batch_first = batch_first
@@ -997,19 +360,8 @@ class GRUD(torch.nn.Module):
                           "num_layers greater than 1, but got dropout={} and "
                           "num_layers={}".format(dropout, num_layers))
 
-        ################################
-        gate_size = 1  # not used
-        ################################
-
         self._all_weights = []
 
-        '''
-        w_ih = Parameter(torch.Tensor(gate_size, layer_input_size))
-        w_hh = Parameter(torch.Tensor(gate_size, hidden_size))
-        b_ih = Parameter(torch.Tensor(gate_size))
-        b_hh = Parameter(torch.Tensor(gate_size))
-        layer_params = (w_ih, w_hh, b_ih, b_hh)
-        '''
         # decay rates gamma
         w_dg_x = torch.nn.Parameter(torch.Tensor(input_size))
         w_dg_h = torch.nn.Parameter(torch.Tensor(hidden_size))
@@ -1076,10 +428,6 @@ class GRUD(torch.nn.Module):
         if not any_param.is_cuda or not torch.backends.cudnn.is_acceptable(any_param):
             return
 
-        # If any parameters alias, we fall back to the slower, copying code path. This is
-        # a sufficient check, because overlapping parameter buffers that don't completely
-        # alias would break the assumptions of the uniqueness check in
-        # Module.named_parameters().
         all_weights = self._flat_weights
         unique_data_ptrs = set(p.data_ptr() for p in all_weights)
         if len(unique_data_ptrs) != len(all_weights):
@@ -1088,11 +436,7 @@ class GRUD(torch.nn.Module):
         with torch.cuda.device_of(any_param):
             import torch.backends.cudnn.rnn as rnn
 
-            # NB: This is a temporary hack while we still don't have Tensor
-            # bindings for ATen functions
             with torch.no_grad():
-                # NB: this is an INPLACE function on all_weights, that's why the
-                # no_grad() is necessary.
                 torch._cudnn_rnn_flatten_weight(
                     all_weights, (4 if self.bias else 2),
                     self.input_size, rnn.get_cudnn_mode(self.mode), self.hidden_size, self.num_layers,
@@ -1187,14 +531,10 @@ class GRUD(torch.nn.Module):
         return [[getattr(self, weight) for weight in weights] for weights in self._all_weights]
 
     def forward(self, input, dataset_name='P12'):
-        # input.size = (3, 33,49) : num_input or num_hidden, num_layer or step
-        X = torch.squeeze(input[0])  # .size = (33,49)
-        Mask = torch.squeeze(input[1])  # .size = (33,49)
-        Delta = torch.squeeze(input[2])  # .size = (33,49)
+        X = torch.squeeze(input[0])
+        Mask = torch.squeeze(input[1])
+        Delta = torch.squeeze(input[2])
         Hidden_State = torch.autograd.Variable(torch.zeros(self.input_size))
-
-        # step_size = X.size(1)  # 49
-        # print('step size : ', step_size)
 
         output = None
         h = Hidden_State
@@ -1283,7 +623,6 @@ class GRUD(torch.nn.Module):
                 recurrent dropout without memory loss arXiv 1603.05118
                 g = h_tilde, p = the probability to not drop a neuron
                 '''
-
                 h = gamma_h * h
 
                 z = torch.sigmoid((w_xz * x + w_hz * h + w_mz * m + b_z))
@@ -1314,132 +653,6 @@ class GRUD(torch.nn.Module):
         return output
 
 
-class Simple_classifier(nn.Module):
-    ""
-    """MLP:36-->32, then concat with positional encoding, masked aggregation; then MLP as classifier """
-
-    def __init__(self, d_inp=36, d_model=64, nhead=4, nhid=128, nlayers=2, dropout=0.3, max_len=215, d_static=9,
-                 MAX=100, perc=0.5, aggreg='mean', n_classes=2, global_structure = None, static=True):
-        super(Simple_classifier, self).__init__()
-        from torch.nn import TransformerEncoder, TransformerEncoderLayer
-        self.model_type = 'Transformer'
-
-        self.global_structure = global_structure
-
-        """d_inp, d_model, nhead, nhid, nlayers, dropout, max_len, 
-            (36, 144, 4, 2*d_model, 2, 0.3, 215) 
-            d_static, MAX, 0.5, aggreg, n_classes,
-            (9, 100, 0.5, 'mean', 2) """
-
-        d_pe = 16
-        d_enc = d_inp
-
-        self.pos_encoder = PositionalEncodingTF(d_pe, max_len, MAX)
-
-        encoder_layers = TransformerEncoderLayer(d_pe + d_enc, nhead, nhid, dropout)
-        self.transformer_encoder = TransformerEncoder(encoder_layers, nlayers)
-
-        self.encoder = nn.Linear(d_inp, d_enc)
-        # self.d_model = d_model
-        self.static = static
-        if self.static:
-            self.emb = nn.Linear(d_static, d_inp)
-
-        # d_fi = d_pe+d_enc + 16 + d_inp
-        # d_final =  d_enc +d_pe  + d_inp
-        if static == False:
-            d_final = d_enc + d_pe  # + d_inp  # if static is None
-        else:
-            d_final = d_enc + d_pe + d_inp
-
-        self.mlp_static = nn.Sequential(
-            nn.Linear(d_final, d_final),
-            nn.ReLU(),
-            nn.Linear(d_final, n_classes),
-        )
-
-        #######################
-        self.d_inp = d_inp
-        self.d_model = d_model
-        self.encoder = nn.Linear(d_inp, d_enc)
-        if self.static:
-            self.emb = nn.Linear(d_static, d_model)
-
-        self.MLP_replace_transformer = nn.Linear(72, 36)
-
-
-        self.mlp = nn.Sequential(
-            nn.Linear(d_model, d_model),
-            nn.ReLU(),
-            nn.Linear(d_model, n_classes),
-        )
-
-
-        self.aggreg = aggreg
-
-        self.relu = nn.ReLU()
-        self.dropout = nn.Dropout(dropout)
-        self.init_weights()
-
-    def init_weights(self):
-        initrange = 1e-10
-        self.encoder.weight.data.uniform_(-initrange, initrange)
-        if self.static:
-            self.emb.weight.data.uniform_(-initrange, initrange)
-        # glorot(self.adj)
-        # self.adj.uniform_(0, 0.5)  # initialize as 0-0.5
-
-    def forward(self, src, static, times, lengths):
-        src =  src[:, :, :self.d_inp]
-        maxlen, batch_size = src.shape[0], src.shape[1]  # src.shape = [215, 128, 36]
-
-        """Question: why 72 features (36 feature + 36 mask)?"""
-        # src = self.encoder(src) * math.sqrt(self.d_model)  # linear layer: 36 --> 36 # Mapping
-
-        # src = src* math.sqrt(self.d_model)
-
-        pe = self.pos_encoder(times)  # times.shape = [215, 128], the values are hours.
-
-
-        """Use late concat for static"""
-        src = self.dropout(src)  # [215, 128, 36]
-        if static is not None:
-            emb = self.emb(static)  # emb.shape = [128, 64]. Linear layer: 9--> 64
-
-        # append context on front
-        """215-D for time series and 1-D for static info"""
-        """step 3: use transformer to aggregate temporal information; batchsize in the middle position"""
-        """concat with timestamp"""
-        r_out = torch.cat([src, pe], dim=-1)  # output shape: [215, 128, (36*4+36)]
-
-        # r_out = src
-
-        """mask out the all-zero rows. """
-        mask = torch.arange(maxlen + 1)[None, :] >= (lengths.cpu()[:, None] + 1)
-        mask = mask.squeeze(1).cuda()  # shape: [128, 216]
-
-        masked_agg = False
-        if masked_agg ==True:
-            """ masked aggregation across rows"""
-            # print('masked aggregation across rows')
-            mask2 = mask.permute(1, 0).unsqueeze(2).long()  # [216, 128, 1]
-            mask2 = mask2[1:]
-            if self.aggreg == 'mean':
-                lengths2 = lengths.unsqueeze(1)
-                output = torch.sum(r_out * (1 - mask2), dim=0) / (lengths2 + 1)
-        elif masked_agg ==False:
-            """Without masked aggregation across rows"""
-            # output = r_out[-1, :, :].squeeze(0) # take the last step's output, shape[128, 36]
-            output = torch.sum(r_out, dim=0) / (lengths.unsqueeze(1) + 1)
-
-        """concat static"""
-        if static is not None:
-            output = torch.cat([output, emb], dim=1) # [128, 36*5+9] # emb with dim: d_model
-        output = self.mlp_static(output)  # 45-->45-->2
-
-        return output # , 0, output_ # output_ is the learned feature
-
-
 class Raindrop(nn.Module):
     ""
     """Implement the raindrop stratey one by one."""
@@ -1463,72 +676,39 @@ class Raindrop(nn.Module):
 
         self.global_structure = global_structure
 
-        """d_inp, d_model, nhead, nhid, nlayers, dropout, max_len, 
-            (36, 144, 4, 2*d_model, 2, 0.3, 215) 
-            d_static, MAX, 0.5, aggreg, n_classes,
-            (9, 100, 0.5, 'mean', 2) """
-
-        d_pe = 36 #int(perc * d_model)
-        d_enc = 36 #d_model - d_pe
+        d_pe = 36
+        d_enc = 36
 
         self.pos_encoder = PositionalEncodingTF(d_pe, max_len, MAX)
 
-        encoder_layers = TransformerEncoderLayer(d_model+36, nhead, nhid, dropout) # nhid is the number of hidden, 36 is the dim of timestamp
+        encoder_layers = TransformerEncoderLayer(d_model+36, nhead, nhid, dropout)  # nhid is the number of hidden, 36 is the dim of timestamp
 
         self.transformer_encoder = TransformerEncoder(encoder_layers, nlayers)
 
-        """HGT layers"""
         self.gcs = nn.ModuleList()
-        conv_name = 'dense_hgt' #  'hgt' # 'dense_hgt',  'gcn', 'dense_hgt'
+        conv_name = 'dense_hgt' # 'hgt' # 'dense_hgt',  'gcn', 'dense_hgt'
         num_types, num_relations = 36, 1
 
-        self.edge_type_train = torch.ones([36*36*2], dtype= torch.int64).cuda() # 2 times fully-connected graph
-        # self.adj = Parameter(torch.Tensor(36, 36))  # random initialize edges
+        self.edge_type_train = torch.ones([36*36*2], dtype=torch.int64).cuda()  # 2 times fully-connected graph
         self.adj = torch.ones([36, 36]).cuda()  # complete graph
 
         """For GIN"""
-        self.dim = int(d_model/d_inp) # the output dim of each node in graph
+        self.dim = int(d_model/d_inp)  # the output dim of each node in graph
         in_D, hidden_D = 1, self.dim  # each timestamp input 2 value, map to self.dim dimension feature, output is self.dim
         self.GINstep1 = GINConv(
             Sequential(Linear(in_D, hidden_D), BatchNorm1d(hidden_D), ReLU(),
                        Linear(hidden_D, hidden_D), ReLU()))
 
-
-        self.transconv  = TransformerConv(in_channels=36, out_channels=36*self.dim, heads=1) # the head is concated. So the output dimension is out_channels*heads
-
-        # self.GIN_middlesteps = GINConv(
-        #     Sequential(Linear(hidden_D, hidden_D), BatchNorm1d(hidden_D), ReLU(),
-        #                Linear(hidden_D, hidden_D), ReLU()))
+        self.transconv  = TransformerConv(in_channels=36, out_channels=36*self.dim, heads=1)
 
         self.GINmlp = nn.Sequential(
-            nn.Linear(self.dim+d_static, self.dim+d_static),  # self.dim for observation,d_static for static info
+            nn.Linear(self.dim+d_static, self.dim+d_static),  # self.dim for observation, d_static for static info
             nn.ReLU(),
             nn.Linear(self.dim+d_static, n_classes),
         )
 
-        # """With LSTM"""
-        # self.node_dim = 4
-        # self.input_dim, self.hidden_dim, self.n_layer = 36*2, 36*2*self.node_dim, 1 # here input_dim = 36*2 because we concat timestamp
-        # self.lstm = LSTMCell_withtimestamp(self.input_dim, self.hidden_dim) # our own LSTM
-        #
-        #
-        # # self.lstm_layer = nn.LSTM(  # standard nn LSTM
-        # #     input_size=36,
-        # #     hidden_size=36,         # LSTM hidden unit
-        # #     num_layers=1,           # number of LSTM layer
-        # #     bias=True,
-        # #     batch_first=False,       # if True input & output will has batch size as 1s dimension. e.g. (batch, segment_length, no_feature)
-        # #     # if False, the input with shape (segment_length, batch, no_feature), which is (215, 128, 36) in our case
-        # # )
-
-
-        # d_final = self.hidden_dim + d_model #9  # self.hidden_dim is output of LSTM, 9 is d_static
-
-
-        # d_final = 36*(self.dim+1) + d_model # using transformer in step 3, nhid = 36*4
-        # d_final = 2*self.node_dim +9  # this is not as good as the previous line
         if static == False:
-            d_final = d_enc + d_pe  # + d_inp  # if static is None
+            d_final = d_enc + d_pe
         else:
             d_final = d_enc + d_pe + d_inp
 
@@ -1538,7 +718,6 @@ class Raindrop(nn.Module):
             nn.Linear(d_final, n_classes),
         )
 
-        #######################
         self.d_inp = d_inp
         self.d_model = d_model
         self.encoder = nn.Linear(d_inp, d_enc)
@@ -1548,13 +727,11 @@ class Raindrop(nn.Module):
 
         self.MLP_replace_transformer = nn.Linear(72, 36)
 
-
         self.mlp = nn.Sequential(
             nn.Linear(d_model, d_model),
             nn.ReLU(),
             nn.Linear(d_model, n_classes),
         )
-
 
         self.aggreg = aggreg
 
@@ -1567,224 +744,86 @@ class Raindrop(nn.Module):
         self.encoder.weight.data.uniform_(-initrange, initrange)
         if self.static:
             self.emb.weight.data.uniform_(-initrange, initrange)
-        # self.adj.uniform_(0, 0.5)  # initialize as 0-0.5
 
     def forward(self, src, static, times, lengths):
         """Input to the model:
         src = P: [215, 128, 36] : 36 nodes, 128 samples, each sample each channel has a feature with 215-D vector
         static = Pstatic: [128, 9]: this one doesn't matter; static features
         times = Ptime: [215, 128]: the timestamps
-       lengths = lengths: [128]: the number of nonzero recordings.
+        lengths = lengths: [128]: the number of nonzero recordings.
         """
-        missing_mask = src[:, :, self.d_inp:int(2*self.d_inp)] # I should use this mask, where to use it?
-        src =  src[:, :, :self.d_inp]
-        maxlen, batch_size = src.shape[0], src.shape[1]  # src.shape = [215, 128, 36]
+        missing_mask = src[:, :, self.d_inp:int(2*self.d_inp)]
+        src = src[:, :, :self.d_inp]
+        maxlen, batch_size = src.shape[0], src.shape[1]
 
-        """Question: why 72 features (36 feature + 36 mask)?"""
-        src = self.encoder(src) * math.sqrt(self.d_model)  # linear layer: 36 --> 36
-        # src = src* math.sqrt(self.d_model)
+        src = self.encoder(src) * math.sqrt(self.d_model)
 
-        pe = self.pos_encoder(times)  # times.shape = [215, 128], the values are hours.
-        # pe.shape = [215, 128, 32]
-
-        # """concat with timestamp"""
-        # src = torch.cat([src, pe], dim=-1)  # output shape: [215, 128, 36*2]
-
-        """Use late concat for static"""
-        src = self.dropout(src)  # [215, 128, 36] # do we really need dropout?
+        pe = self.pos_encoder(times)
+        src = self.dropout(src)
         if static is not None:
-            emb = self.emb(static)  # emb.shape = [128, 64]. Linear layer: 9--> 64
+            emb = self.emb(static)
 
-        # append context on front
-        """215-D for time series and 1-D for static info"""
-        # x = torch.cat([emb.unsqueeze(0), src], dim=0)  # x.shape: [216, 128, 64]
-        # """If don't concat static info:"""
-
-        withmask = False  # False is better
+        withmask = False
         if withmask==True:
             x = torch.cat([src, missing_mask], dim=-1)
         else:
-            x = src  # [215, 128, 36*2]
+            x = src
 
-
-        """mask out the all-zero rows. """
+        # mask out the all-zero rows
         mask = torch.arange(maxlen)[None, :] >= (lengths.cpu()[:, None] )
-        mask = mask.squeeze(1).cuda()  # shape: [128, 216]
+        mask = mask.squeeze(1).cuda()
 
-
-        """If skip step 2, direct process the input data"""
-        step2 = True
-
+        step2 = True  # If skip step 2, direct process the input data
         if step2 == False:
             output = x
             distance = 0
-        elif step2 ==True:
+        elif step2 == True:
+            adj = self.global_structure.cuda()
+            adj[torch.eye(36).byte()] = 1
 
-            # # If use tranformer:
-            # # use mask[:, 1:] to transfer it from [128, 216] to [128, 215]
-            # output = self.transformer_encoder(x, src_key_padding_mask=mask[:, 1:]) # output.shape: [216, 128, 64]
-
-            """If use HGT: take x and edgeindex as input"""
-            # adj = self.adj.triu() + self.adj.triu(1).transpose(-1, -2) # keep adj symmetric! fully connected
-            # adj = torch.zeros([36,36]).cuda() # not connected nodes.
-
-            adj = self.global_structure.cuda() # torch.from_numpy(self.global_structure) #.cuda()
-            adj[torch.eye(36).byte()] = 1  # add self-loop, set diagonal as one
-
-            # the adjacency is directed.
             edge_index = torch.nonzero(adj).T
-            edge_weights = adj[edge_index[0], edge_index[1]]  # get the edge weights
-            # edge_index_inverse = torch.cat((edge_index_direct[1].unsqueeze(0), edge_index_direct[0].unsqueeze(0)),dim=0)
-            # edge_index = torch.cat((edge_index_direct, edge_index_inverse), dim=1)  # shape: [2, 2592]
+            edge_weights = adj[edge_index[0], edge_index[1]]
 
-            # """Where to add the edge weights???"""
-            # # source node type: duplicate it for each sample.
-            # sample_nodetype =  torch.range(0, 35, dtype=torch.int64)  # node types are from 0 to 35
-            # source_node_type = sample_nodetype.repeat(x.shape[1]).to(x.device)
-
-            """Step 2 (loop for units): graph message passing (ribble)"""
-            # x: [215, 128, 36]
-            output = torch.zeros([maxlen, src.shape[1] , 36*self.dim]).cuda() # shape[215, 128, 36]
+            # graph message passing
+            output = torch.zeros([maxlen, src.shape[1], 36*self.dim]).cuda()
             alpha_all = torch.zeros([edge_index.shape[1],  src.shape[1] ]).cuda()
             for unit in range(0, x.shape[1]):
-                """Using transformer conv"""
-                # stepdata: [215, 36];      # edge_index: [2, 360]; edge_weights: [360]
                 stepdata = x[:, unit, :]
-                """Here, the edge_attr is not edge weights, but edge features!
-                If we want to the calculation contains edge weights, change the calculation of alpha"""
-                # stepdata = stepdata.reshape([-1, 36, 1])
                 stepdata, attentionweights = self.transconv(stepdata, edge_index=edge_index, edge_weights=edge_weights,
-                                                            edge_attr=None, return_attention_weights=True) #edge_weights
-                # stepdata.shape [128, 36*self.dim],
-                # attentionweights[0]: edge index, shape:[2, 360], attentionweights[1]: edge weights [360, 1]
+                                                            edge_attr=None, return_attention_weights=True)
 
-                """update edge_index and edge_weights"""
-                # edge_weights = attentionweights[1].squeeze(-1) # the edge weights in previous layer is used as the intial edge weights for next layer
-                # edge_index = attentionweights[0]
-
-                stepdata = stepdata.reshape([-1, 36*self.dim]).unsqueeze(0)  # average in the middle dimension
-                output[:, unit, :] = stepdata # the final output shape is [215, 128, 36*self.dim] after loop
-                """update graph structure"""
-                # n = (query * key).sum(dim=-1) / math.sqrt(self.out_channels)
+                stepdata = stepdata.reshape([-1, 36*self.dim]).unsqueeze(0)
+                output[:, unit, :] = stepdata
 
                 alpha_all[:, unit] = attentionweights[1].squeeze(-1)
 
-            #
-            # """Step 2: graph message passing (ribble)"""
-            # """Using GIN with raindrop"""
-            # x = x.permute(1,2, 0)  # x: [215, 128, 36] --> [128, 36, 215]
-            #
-            # output = torch.zeros([215, src.shape[1] , 36*self.dim]).cuda() # shape[215, 128, 36]
-            # for stamp in range(0, x.shape[-1]):
-            #     """Use GIN for message passing"""
-            #     # """here reshapre to [-1, 2], because input for each node is 2-d: one observation and one timestamp"""
-            #     # """TODO (Done): it's better to only use 1-D input (the observation), and concat with timestamp before step 2"""
-            #     # stepdata = x[:, :, stamp].reshape([-1, 1])  # take [128,36*2,1 ] as one slice and reshape to [128*36, 2]
-            #     # stepdata = self.GINstep1(stepdata, edge_index=edge_index)
-            #
-            #     """Using transformer conv"""
-            #     # stepdata: [128, 36];      # edge_index: [2, 360]; edge_weights: [360]
-            #     stepdata = x[:, :, stamp]
-            #     """Here, the edge_attr is not edge weights, but edge features!
-            #     If we want to the calculation contains edge weights, change the calculation of alpha"""
-            #     # stepdata = stepdata.reshape([-1, 36, 1])
-            #     stepdata, attentionweights = self.transconv(stepdata, edge_index=edge_index, edge_weights=edge_weights,
-            #                                                 edge_attr=None, return_attention_weights=True)
-            #     # stepdata.shape [128, 36*self.dim],
-            #     # attentionweights[0]: edge index, shape:[2, 360], attentionweights[1]: edge weights [360, 1]
-            #     """update edge_index and edge_weights"""
-            #     edge_weights = attentionweights[1].squeeze(-1) # the edge weights in previous layer is used as the intial edge weights for next layer
-            #     edge_index = attentionweights[0]  #
-            #
-            #     # observations = stepdata # [128, 36*self.dim]
-            #     # cos_sim = torch.zeros([observations.shape[0], 36, 36]).cuda() #
-            #     # for row in range(observations.shape[0]):
-            #     #     row = observations[row].reshape([4, 36]).cpu().detach().numpy()
-            #     #     cos_sim_unit = cosine_similarity(row.T)  # shape: (9590, 9590)
-            #     #     cos_sim[row,:, :] = torch.from_numpy(cos_sim_unit).cuda()
-            #     #
-            #     # ave_sim = torch.mean(cos_sim, dim=0)
-            #     # index = torch.argsort(ave_sim, dim=0)
-            #     # index_K = index < 10  # is this differentialable?
-            #     # updated_adj = index_K * ave_sim  # softmax
-            #     # edge_index = torch.nonzero(updated_adj).T.cuda()
-            #
-            #
-            #
-            #     """Using HGT layer to replace GIN"""
-            #     # x = stepdata.permute(1, 2, 0).reshape([-1, 215]) # x: [215, 128, 36] --> [128*36, 215]
-            #     # for gc in self.gcs:
-            #     #     # train_dataset = dataset[BATCH_SIZE:]
-            #     #     # test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE)
-            #         # x = gc(x,  edge_index=edge_index, node_type=source_node_type,
-            #         #        edge_type=self.edge_type_train.to(x.device), edge_time=None)
-            #
-            #     stepdata = stepdata.reshape([-1, 36*self.dim]).unsqueeze(0)  # average in the middle dimension
-            #     output[stamp] = stepdata # the final output shape is [215, 128, 36*self.dim] after loop
-            #     """update graph structure"""
+            # calculate Euclidean distance between alphas
+            distance = torch.cdist(alpha_all.T, alpha_all.T, p=2)
+            distance = torch.mean(distance)
 
-            """calculate Euclidean distance between alphas"""
-            distance = torch.cdist(alpha_all.T, alpha_all.T, p=2)  # distance shape: [128, 128]
-            distance = torch.mean(distance) # the average of all unit pairs
+        # use transformer to aggregate temporal information
+        output = torch.cat([output, pe], dim=-1)
 
-
-        """step 3: use transformer to aggregate temporal information; batchsize in the middle position"""
-        """concat with timestamp"""
-        output = torch.cat([output, pe], dim=-1)  # output shape: [215, 128, (36*4+36)]
-
-        step3 = True  # """If also skip step 3 (transformer)"""
-
+        step3 = True
         if step3==True:
-            r_out = self.transformer_encoder(output, src_key_padding_mask=mask)  # output.shape: [216, 128, 72]
+            r_out = self.transformer_encoder(output, src_key_padding_mask=mask)
         elif step3==False:
             r_out = output
-        #
-        # """If also skip step 3 (transformer)"""
-        # r_out = output
-
-        # the input and output size of transformer encoder is the same. If want to change it, revise Line 268 in
-
-        # """LSTM layer"""
-        # # # standard LSTM
-        # # r_out, (h_n, h_c) = self.lstm_layer(output.float(), None) # output shape: [215, 128, 36]
-        #
-        # # our own LSTM
-        # # output = output.permute(1, 0, 2) # [215, 128, 36] --> [128, 215, 36]
-        # h0 = Variable(torch.zeros(self.n_layer, batch_size, self.hidden_dim).cuda())
-        # c0 = Variable(torch.zeros(self.n_layer, batch_size, self.hidden_dim).cuda())
-        #
-        # r_out = torch.zeros([output.shape[0], batch_size, self.hidden_dim]).cuda() # shape[215, 128, 36]
-        # cn = c0[0, :, :]
-        # hn = h0[0, :, :]
-        #
-        # for seq in range(output.shape[0]): # update in each time step
-        #     hn, cn = self.lstm(output[seq, :, :], (hn, cn), missing_mask[seq, :, :], pe[seq, :, :])
-        #     ### output[seq, :, :].shape:[128, 36]
-        #     ### hn.shape = cn.shape = [128,128]
-        #     ### missing_mask[seq, :, :].shape: [128, 36] Each value in output has a corresponding mask.
-        #     r_out[seq] = hn  # the final output shape of r_out is [215, 128, 36]
 
         masked_agg = True
         if masked_agg ==True:
-            """ masked aggregation across rows"""
-            mask2 = mask.permute(1, 0).unsqueeze(2).long()  # [216, 128, 1]
+            # masked aggregation across rows
+            mask2 = mask.permute(1, 0).unsqueeze(2).long()
             if self.aggreg == 'mean':
                 lengths2 = lengths.unsqueeze(1)
                 output = torch.sum(r_out * (1 - mask2), dim=0) / (lengths2 + 1)
         elif masked_agg ==False:
-            """Without masked aggregation across rows"""
-            output = r_out[-1, :, :].squeeze(0) # take the last step's output, shape[128, 36]
+            # Without masked aggregation across rows
+            output = r_out[-1, :, :].squeeze(0)
 
-            # """pooling function to aggregate node-level features to graph-level features"""
-            # # if set self.node_dim as a large number and d_final = 2*self.node_dim +9:
-            # output = output.reshape(output.shape[0],  2*self.node_dim, 36)
-            # output = torch.mean(output, dim=2)
-
-        """concat static"""
         if static is not None:
-            output = torch.cat([output, emb], dim=1)  # [128, 36*5+9] # emb with dim: d_model
-        output = self.mlp_static(output)  # 45-->45-->2
+            output = torch.cat([output, emb], dim=1)
+        output = self.mlp_static(output)
 
-        return output , distance, None
-
+        return output, distance, None
 

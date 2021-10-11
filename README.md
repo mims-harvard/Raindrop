@@ -170,7 +170,7 @@ python mTAND_baseline.py
 ```
 
 All algorithms can be run with named arguments, which allow the use of different settings from the paper:
-- *dataset*: Choose which dataset to use. Options: [P12, P19, PAMAP2].
+- *dataset*: Choose which dataset to use. Options: [P12, P19, PAM].
 - *withmissingratio*: If True, missing ratio of sensors in test set ranges from 0.1 to 0.5. 
 If False, missing ratio is 0. Used in setting 2 and 3. Options: [True, False].
 - *splittype*: Choose how the data is split into train, validation and test set.
@@ -204,7 +204,7 @@ python Transformer_baseline.py --dataset P19 --withmissingratio True --splittype
 Run SeFT baseline on PAM dataset in setting 3 (leave-random-sensors-out):
 
 ```
-python SEFT_baseline.py --dataset PAMAP2 --withmissingratio True --splittype random --feature_removal_level sample
+python SEFT_baseline.py --dataset PAM --withmissingratio True --splittype random --feature_removal_level sample
 ```
 
 Run GRU-D baseline on P12 dataset in setting 4, where you train on younger than 65 and 

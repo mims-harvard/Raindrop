@@ -11,6 +11,7 @@ from sklearn import metrics
 from sklearn.metrics import precision_score, recall_score, f1_score
 from person_activity import PersonActivity
 
+
 def one_hot(y_):
     # Function to encode output labels from number indexes
     # e.g.: [[5], [0], [3]] --> [[0, 0, 0, 0, 0, 1], [1, 0, 0, 0, 0, 0], [0, 0, 0, 1, 0, 0]]
@@ -19,6 +20,7 @@ def one_hot(y_):
     y_ = [int(x) for x in y_]
     n_values = np.max(y_) + 1
     return np.eye(n_values)[np.array(y_, dtype=np.int32)]
+
 
 def count_parameters(model):
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
@@ -106,7 +108,7 @@ def compute_losses(dim, dec_train_batch, qz0_mean, qz0_logvar, pred_x, args, dev
     observed_data, observed_mask \
         = dec_train_batch[:, :, :dim], dec_train_batch[:, :, dim:2*dim]
 
-    noise_std = args.std  # default 0.1
+    noise_std = args.std
     noise_std_ = torch.zeros(pred_x.size()).to(device) + noise_std
     noise_logvar = 2. * torch.log(noise_std_).to(device)
     logpx = log_normal_pdf(observed_data, pred_x, noise_logvar,
@@ -121,7 +123,7 @@ def compute_losses(dim, dec_train_batch, qz0_mean, qz0_logvar, pred_x, args, dev
 
 
 def evaluate_classifier(model, test_loader, dec=None, args=None, classifier=None,
-                        dim=41, device='cuda', reconst=False, num_sample=1, dataset='P12'):   # todo
+                        dim=41, device='cuda', reconst=False, num_sample=1, dataset='P12'):
     pred = []
     true = []
     test_loss = 0
@@ -143,7 +145,6 @@ def evaluate_classifier(model, test_loader, dec=None, args=None, classifier=None
                 if args.classify_pertp:
                     pred_x = dec(z0, observed_tp[None, :, :].repeat(
                         num_sample, 1, 1).view(-1, observed_tp.shape[1]))
-                    #pred_x = pred_x.view(num_sample, batch_len, pred_x.shape[1], pred_x.shape[2])
                     out = classifier(pred_x)
                 else:
                     out = classifier(z0)
@@ -164,93 +165,17 @@ def evaluate_classifier(model, test_loader, dec=None, args=None, classifier=None
 
     acc = np.mean(pred.argmax(1) == true)
 
-    # print('Non-zero predictions = ', np.count_nonzero(np.argmax(pred, axis=1)))
-    # print(confusion_matrix(true, np.argmax(pred, axis=1), labels=[0, 1]))
-
     if dataset == 'P12' or dataset == 'P19' or dataset == 'eICU':
         auc = metrics.roc_auc_score(true, pred[:, 1]) if not args.classify_pertp else 0.
         aupr = average_precision_score(true, pred[:, 1]) if not args.classify_pertp else 0.
         return test_loss / pred.shape[0], acc, auc, aupr, None, None, None
-    elif dataset == 'PAMAP2':
-#         auc = metrics.roc_auc_score(true, pred) if not args.classify_pertp else 0.
+    elif dataset == 'PAM':
         auc = metrics.roc_auc_score(one_hot(true), pred) if not args.classify_pertp else 0.
-#         aupr = average_precision_score(true, pred) if not args.classify_pertp else 0.
         aupr = average_precision_score(one_hot(true), pred) if not args.classify_pertp else 0.
-        # print(true.shape, pred.shape, true[0], pred[0])
         precision = precision_score(true, pred.argmax(1), average='macro', ) if not args.classify_pertp else 0.
         recall = recall_score(true, pred.argmax(1), average='macro', ) if not args.classify_pertp else 0.
-        # F1 = f1_score(true, pred.argmax(1), average='macro', labels=np.unique(pred)) if not args.classify_pertp else 0.
         F1 = 2 * (precision * recall) / (precision + recall) if not args.classify_pertp else 0.
         return test_loss/pred.shape[0], acc, auc, aupr, precision, recall, F1
-
-
-def get_mimiciii_data(args):
-    input_dim = 12
-    x = np.load('../../../neuraltimeseries/Dataset/final_input3.npy')
-    y = np.load('../../../neuraltimeseries/Dataset/final_output3.npy')
-    x = x[:, :25]
-    x = np.transpose(x, (0, 2, 1))
-
-    # normalize values and time
-    observed_vals, observed_mask, observed_tp = x[:, :,
-                                                  :input_dim], x[:, :, input_dim:2*input_dim], x[:, :, -1]
-    if np.max(observed_tp) != 0.:
-        observed_tp = observed_tp / np.max(observed_tp)
-
-    if not args.nonormalize:
-        for k in range(input_dim):
-            data_min, data_max = float('inf'), 0.
-            for i in range(observed_vals.shape[0]):
-                for j in range(observed_vals.shape[1]):
-                    if observed_mask[i, j, k]:
-                        data_min = min(data_min, observed_vals[i, j, k])
-                        data_max = max(data_max, observed_vals[i, j, k])
-            #print(data_min, data_max)
-            if data_max == 0:
-                data_max = 1
-            observed_vals[:, :, k] = (
-                observed_vals[:, :, k] - data_min)/data_max
-    # set masked out elements back to zero
-    observed_vals[observed_mask == 0] = 0
-    print(observed_vals[0], observed_tp[0])
-    print(x.shape, y.shape)
-    kfold = model_selection.StratifiedKFold(
-        n_splits=5, shuffle=True, random_state=0)
-    splits = [(train_inds, test_inds)
-              for train_inds, test_inds in kfold.split(np.zeros(len(y)), y)]
-    x_train, y_train = x[splits[args.split][0]], y[splits[args.split][0]]
-    test_data_x, test_data_y = x[splits[args.split]
-                                 [1]], y[splits[args.split][1]]
-    if not args.old_split:
-        train_data_x, val_data_x, train_data_y, val_data_y = \
-            model_selection.train_test_split(
-                x_train, y_train, stratify=y_train, test_size=0.2, random_state=0)
-    else:
-        frac = int(0.8*x_train.shape[0])
-        train_data_x, val_data_x = x_train[:frac], x_train[frac:]
-        train_data_y, val_data_y = y_train[:frac], y_train[frac:]
-
-    print(train_data_x.shape, train_data_y.shape, val_data_x.shape, val_data_y.shape,
-          test_data_x.shape, test_data_y.shape)
-    print(np.sum(test_data_y))
-    train_data_combined = TensorDataset(torch.from_numpy(train_data_x).float(),
-                                        torch.from_numpy(train_data_y).long().squeeze())
-    val_data_combined = TensorDataset(torch.from_numpy(val_data_x).float(),
-                                      torch.from_numpy(val_data_y).long().squeeze())
-    test_data_combined = TensorDataset(torch.from_numpy(test_data_x).float(),
-                                       torch.from_numpy(test_data_y).long().squeeze())
-    train_dataloader = DataLoader(
-        train_data_combined, batch_size=args.batch_size, shuffle=False)
-    test_dataloader = DataLoader(
-        test_data_combined, batch_size=args.batch_size, shuffle=False)
-    val_dataloader = DataLoader(
-        val_data_combined, batch_size=args.batch_size, shuffle=False)
-
-    data_objects = {"train_dataloader": train_dataloader,
-                    "test_dataloader": test_dataloader,
-                    "val_dataloader": val_dataloader,
-                    "input_dim": input_dim}
-    return data_objects
 
 
 def random_sample(idx_0, idx_1, batch_size):
@@ -262,7 +187,6 @@ def random_sample(idx_0, idx_1, batch_size):
     :param batch_size: batch size
     :return: indices of balanced batch of negative and positive samples
     """
-    """  """
     idx0_batch = np.random.choice(idx_0, size=int(batch_size / 2), replace=False)
     idx1_batch = np.random.choice(idx_1, size=int(batch_size / 2), replace=False)
     idx = np.concatenate([idx0_batch, idx1_batch], axis=0)
@@ -360,7 +284,7 @@ def preprocess_eICU(PT_dict, arr_outcomes, labels_ts):
     return total
 
 
-def preprocess_PAMAP2(PT_dict, arr_outcomes):
+def preprocess_PAM(PT_dict, arr_outcomes):
     length = 600
     total = []
     for i, patient in enumerate(PT_dict):
@@ -406,16 +330,6 @@ def get_data(args, dataset, device, q, upsampling_batch, split_type, feature_rem
                                       quantization=q,
                                       download=True, n_samples=12000,
                                       device=device, set_letter='c')
-
-        # # Use custom collate_fn to combine samples with arbitrary time observations.
-        # # Returns the dataset along with mask and time steps
-        # test_dataset_obj = PhysioNet('data/physionet', train=False,
-        #                              quantization=q,
-        #                              download=True, n_samples=min(10000, args.n),
-        #                              device=device)
-
-        # Combine and shuffle samples from physionet Train and physionet Test
-        # total_dataset = train_dataset_obj[:len(train_dataset_obj)]
 
         dataset_1 = train_dataset_obj_1[:len(train_dataset_obj_1)]
         dataset_2 = train_dataset_obj_2[:len(train_dataset_obj_2)]
@@ -475,18 +389,11 @@ def get_data(args, dataset, device, q, upsampling_batch, split_type, feature_rem
 
         total_dataset = preprocess_eICU(PT_dict, arr_outcomes, labels_ts)
 
-    elif dataset == 'PAMAP2':
-        PT_dict = np.load('../../../PAMAP2data/processed_data/PTdict_list.npy', allow_pickle=True)
-        arr_outcomes = np.load('../../../PAMAP2data/processed_data/arr_outcomes.npy', allow_pickle=True)
+    elif dataset == 'PAM':
+        PT_dict = np.load('../../../PAMdata/processed_data/PTdict_list.npy', allow_pickle=True)
+        arr_outcomes = np.load('../../../PAMdata/processed_data/arr_outcomes.npy', allow_pickle=True)
 
-        total_dataset = preprocess_PAMAP2(PT_dict, arr_outcomes)
-
-    # if not args.classif:
-    #     # Concatenate samples from original Train and Test sets
-    #     # Only 'training' physionet samples are have labels.
-    #     # Therefore, if we do classifiction task, we don't need physionet 'test' samples.
-    #     total_dataset = total_dataset + \
-    #         test_dataset_obj[:len(test_dataset_obj)]
+        total_dataset = preprocess_PAM(PT_dict, arr_outcomes)
 
     print('len(total_dataset):', len(total_dataset))
 
@@ -526,11 +433,9 @@ def get_data(args, dataset, device, q, upsampling_batch, split_type, feature_rem
 
     record_id, tt, vals, mask, labels = train_data[0]
 
-    # n_samples = len(total_dataset)
     input_dim = vals.size(-1)
     data_min, data_max = get_data_min_max(total_dataset, device)
-    # batch_size = min(min(len(train_dataset_obj_1), args.batch_size), args.n)
-    batch_size = 128 # 128
+    batch_size = 128
     if flag:
         if args.classif:
             if split_type == 'random':
@@ -544,7 +449,7 @@ def get_data(args, dataset, device, q, upsampling_batch, split_type, feature_rem
                 num_all_features = 34
             elif dataset == 'eICU':
                 num_all_features = 14
-            elif dataset == 'PAMAP2':
+            elif dataset == 'PAM':
                 num_all_features = 17
 
             num_missing_features = round(missing_ratio * num_all_features)
@@ -566,23 +471,20 @@ def get_data(args, dataset, device, q, upsampling_batch, split_type, feature_rem
             elif feature_removal_level == 'set':
                 if dataset == 'P12':
                     dict_params = train_dataset_obj_1.params_dict
-                    # density_scores_names = np.load('density_scores.npy', allow_pickle=True)[:, 2]
                     density_scores_names = np.load('../saved/IG_density_scores_P12.npy', allow_pickle=True)[:, 1]
                     idx = [dict_params[name] for name in density_scores_names[:num_missing_features]]
                 elif dataset == 'P19':
                     labels_ts = np.load('../../../P19data/processed_data/labels_ts.npy', allow_pickle=True)
                     dict_params = {label: i for i, label in enumerate(labels_ts[:-1])}
-                    # density_scores_names = np.load('P19_density_scores.npy', allow_pickle=True)[:, 2]
                     density_scores_names = np.load('../saved/IG_density_scores_P19.npy', allow_pickle=True)[:, 1]
                     idx = [dict_params[name] for name in density_scores_names[:num_missing_features]]
                 elif dataset == 'eICU':
                     labels_ts = np.load('../../../eICUdata/processed_data/eICU_ts_vars.npy', allow_pickle=True)
                     dict_params = {label: i for i, label in enumerate(labels_ts)}
-                    # density_scores_names = np.load('eICU_density_scores.npy', allow_pickle=True)[:, 2]
                     density_scores_names = np.load('../saved/IG_density_scores_eICU.npy', allow_pickle=True)[:, 1]
                     idx = [dict_params[name] for name in density_scores_names[:num_missing_features]]
-                elif dataset == 'PAMAP2':
-                    density_scores_indices = np.load('../saved/IG_density_scores_PAMAP2.npy', allow_pickle=True)[:, 0]
+                elif dataset == 'PAM':
+                    density_scores_indices = np.load('../saved/IG_density_scores_PAM.npy', allow_pickle=True)[:, 0]
                     idx = list(map(int, density_scores_indices[:num_missing_features]))
 
                 for i, tpl in enumerate(val_data):
@@ -608,7 +510,7 @@ def get_data(args, dataset, device, q, upsampling_batch, split_type, feature_rem
                         indices = random_sample(idx_0, idx_1, batch_size)
                         for i in indices:
                             train_data_upsamled.append(train_data[i])
-                elif dataset == 'PAMAP2':   # 8 classes
+                elif dataset == 'PAM':   # 8 classes
                     for b in range(len(true_labels) // batch_size):
                         indices = random_sample_8(true_labels, batch_size)
                         for i in indices:
@@ -634,7 +536,6 @@ def get_data(args, dataset, device, q, upsampling_batch, split_type, feature_rem
         else:
             train_data_combined = variable_time_collate_fn(
                 train_data, device, classify=args.classif, data_min=data_min, data_max=data_max)
-            # print(train_data_combined.size(), test_data_combined.size())
 
         train_dataloader = DataLoader(
             train_data_combined, batch_size=batch_size, shuffle=False)
@@ -649,14 +550,13 @@ def get_data(args, dataset, device, q, upsampling_batch, split_type, feature_rem
                                      collate_fn=lambda batch: variable_time_collate_fn2(batch, args, device, data_type="test",
                                                                                         data_min=data_min, data_max=data_max))
 
-    # attr_names = train_dataset_obj_1.params
-    data_objects = {"dataset_obj": {},  # train_dataset_obj_1
+    data_objects = {"dataset_obj": {},
                     "train_dataloader": train_dataloader,
                     "test_dataloader": test_dataloader,
                     "input_dim": input_dim,
                     "n_train_batches": len(train_dataloader),
                     "n_test_batches": len(test_dataloader),
-                    "attr": {},   # attr_names,  # optional
+                    "attr": {},  # optional
                     "classif_per_tp": False,  # optional
                     "n_labels": 1}  # optional
     if args.classif:
@@ -703,7 +603,7 @@ def variable_time_collate_fn(batch, device=torch.device("cpu"), classify=False, 
             if activity:
                 combined_labels[b, :currlen] = labels.to(device)
             else:
-                if labels is not None:  # todo
+                if labels is not None:
                     combined_labels[b] = labels.to(device)
 
     if not activity:
@@ -730,9 +630,6 @@ def get_activity_data(args, device):
 
     train_data, test_data = model_selection.train_test_split(dataset_obj, train_size=0.8,
                                                              random_state=42, shuffle=True)
-
-    # train_data = [train_data[i] for i in np.random.choice(len(train_data), len(train_data))]
-    # test_data = [test_data[i] for i in np.random.choice(len(test_data), len(test_data))]
 
     record_id, tt, vals, mask, labels = train_data[0]
     input_dim = vals.size(-1)
@@ -766,14 +663,12 @@ def get_activity_data(args, device):
     val_dataloader = DataLoader(
         val_data_combined, batch_size=batch_size, shuffle=False)
 
-    #attr_names = train_dataset_obj.params
     data_objects = {"train_dataloader": train_dataloader,
                     "test_dataloader": test_dataloader,
                     "val_dataloader": val_dataloader,
                     "input_dim": input_dim,
                     "n_train_batches": len(train_dataloader),
                     "n_test_batches": len(test_dataloader),
-                    # "attr": attr_names, #optional
                     "classif_per_tp": False,  # optional
                     "n_labels": 1}  # optional
 
@@ -782,7 +677,6 @@ def get_activity_data(args, device):
 
 def irregularly_sampled_data_gen(n=10, length=20, seed=0):
     np.random.seed(seed)
-    # obs_times = obs_times_gen(n)
     obs_values, ground_truth, obs_times = [], [], []
     for i in range(n):
         t1 = np.sort(np.random.uniform(low=0.0, high=1.0, size=length))
@@ -797,12 +691,10 @@ def irregularly_sampled_data_gen(n=10, length=20, seed=0):
         f3 = np.sin(12*(t3+b)) + 0.01 * np.random.randn()
         obs_times.append(np.stack((t1, t2, t3), axis=0))
         obs_values.append(np.stack((f1, f2, f3), axis=0))
-        #obs_values.append([f1.tolist(), f2.tolist(), f3.tolist()])
         t = np.linspace(0, 1, 100)
         fg1 = .8 * np.sin(20*(t+a) + np.sin(20*(t+a)))
         fg2 = -.5 * np.sin(20*(t+a + 20) + np.sin(20*(t+a + 20)))
         fg3 = np.sin(12*(t+b))
-        #ground_truth.append([f1.tolist(), f2.tolist(), f3.tolist()])
         ground_truth.append(np.stack((fg1, fg2, fg3), axis=0))
     return obs_values, ground_truth, obs_times
 
@@ -854,7 +746,6 @@ def kernel_smoother_data_gen(args, alpha=100., seed=0, ref_points=10):
 
         query_points = np.sort(np.random.choice(
             np.linspace(0, 1., 101), size=args.length, replace=True))
-        # query_points = np.sort(np.random.uniform(low=0.0, high=1.0, size=args.length))
         weights = np.exp(-alpha*(np.expand_dims(query_points,
                                                 1) - np.expand_dims(key_points, 0))**2)
         weights /= weights.sum(1, keepdims=True)
@@ -905,7 +796,6 @@ def get_toy_data(args):
         combined_obs_values[:, i, i *
                             args.length: (i+1)*args.length] = obs_values[:, i]
         mask[:, i, i*args.length: (i+1)*args.length] = 1.
-    #print(combined_obs_values.shape, mask.shape, obs_times.shape, np.expand_dims(obs_times, axis=1).shape)
     combined_data = np.concatenate(
         (combined_obs_values, mask, np.expand_dims(obs_times, axis=1)), axis=1)
     combined_data = np.transpose(combined_data, (0, 2, 1))
@@ -966,7 +856,6 @@ def get_physionet_data_extrap(args, device, q, flag=1):
 
     record_id, tt, vals, mask, labels = train_data[0]
 
-    # n_samples = len(total_dataset)
     input_dim = vals.size(-1)
     data_min, data_max = get_data_min_max(total_dataset, device)
     batch_size = min(min(len(train_dataset_obj), args.batch_size), args.n)

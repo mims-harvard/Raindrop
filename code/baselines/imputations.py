@@ -131,7 +131,6 @@ def cubic_spline_imputation(X_features, X_time):
     :param X_time: times, when observations were measured
     :return: X_features, filled with interpolated values
     """
-    # print(X_features[0, 160:170, 5:12])
     time_length = [np.where(times == 0)[0][1] if np.where(times == 0)[0][0] == 0 else np.where(times == 0)[0][0] for times in X_time]
 
     # impute times series features
@@ -160,19 +159,5 @@ def cubic_spline_imputation(X_features, X_time):
 
                 X_features[i, :time_length[i], j] = valid_ts
 
-    # print(X_features[0, 160:170, 5:12])
     return X_features
-
-
-if __name__ == '__main__':
-    pass
-    # base_path = '../../P12data'
-    # split_idx = 1
-    # split_path = '/splits/phy12_split_subset' + str(split_idx) + '.npy'
-    #
-    # normalization = True
-    # imputation_method = None
-    #
-    # (X_features_train, X_static_train, X_time_train, y_train), (X_features_val, X_static_val, X_time_val, y_val), (X_features_test, X_static_test, X_time_test, y_test) = read_and_prepare_data(base_path, split_path, normalization, imputation=imputation_method)
-
 

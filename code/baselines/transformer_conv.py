@@ -198,19 +198,14 @@ class TransformerConv(MessagePassing):
                                                       self.out_channels)
             key += edge_attr
 
-        alpha = (query * key).sum(dim=-1) / math.sqrt(self.out_channels) # shape [360, 1]
+        alpha = (query * key).sum(dim=-1) / math.sqrt(self.out_channels)
         if edge_weights is not None:
-            """Multiply with the edge weights"""
-            # alpha = alpha*(edge_weights.unsqueeze(-1))
             alpha = edge_weights.unsqueeze(-1)
-        alpha = softmax(alpha, index, ptr, size_i)  # This alpha is based on edges. Each edge has an attention weights
+        alpha = softmax(alpha, index, ptr, size_i)
         self._alpha = alpha
         alpha = F.dropout(alpha, p=self.dropout, training=self.training)
 
         out = self.lin_value(x_j).view(-1, self.heads, self.out_channels)
-        # if edge_attr is not None:
-        #     out += edge_attr
-
         out *= alpha.view(-1, self.heads, 1)
         return out
 

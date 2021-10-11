@@ -11,41 +11,25 @@ def timeparser(time):
 
 
 def timedelta_to_day_figure(timedelta):
-    return timedelta.days + (timedelta.seconds/86400)  # (24*60*60)
+    return timedelta.days + (timedelta.seconds/86400)
 
 
-# group the data by time
-def df_to_inputs(df, inputdict, inputs):
+def df_to_inputs(df, inputdict, inputs):    # group the data by time
     grouped_data = df.groupby('Time')
-
     for row_index, value in df.iterrows():
-
-        # t = colum ~ time frame
-        # agg_no = row ~ variable
-
-        # print(value.Parameter, type(value.Parameter))
         if isinstance(value.Parameter, str) or (isinstance(value.Parameter, float) and not math.isnan(value.Parameter)):
             agg_no = inputdict[value.Parameter]
-
-            #print('agg_no : {}\t  value : {}'.format(agg_no, value.Value))
             inputs[agg_no].append(value.Value)
-
     return inputs
 
 
-
-# describe the data
-# print count, min, max, mean, median, std, var and histogram if hist == True
-# return values as a list
 def describe(inputs, input_columns, inputdict, hist=False):
-
     desc = []
 
     for i in range(len(inputdict)-2):
         input_arr = np.asarray(inputs[i])
 
         des = []
-
         des.append(input_arr.size)
         des.append(np.amin(input_arr))
         des.append(np.amax(input_arr))
@@ -56,7 +40,6 @@ def describe(inputs, input_columns, inputdict, hist=False):
 
         desc.append(des)
 
-        # print histgram
         if hist:
             a = np.hstack(input_arr)
             plt.hist(a, bins='auto')
@@ -69,8 +52,6 @@ def describe(inputs, input_columns, inputdict, hist=False):
     return desc
 
 
-
-# dataframe to dataset
 def df_to_x_m_d(df, inputdict, size, id_posistion, split, dataset_name='P12'):
     grouped_data = df.groupby('Time')
 
@@ -81,12 +62,12 @@ def df_to_x_m_d(df, inputdict, size, id_posistion, split, dataset_name='P12'):
     elif dataset_name == 'P19' or dataset_name == 'eICU':
         x = np.zeros((len(inputdict), grouped_data.ngroups))
         masking = np.zeros((len(inputdict), grouped_data.ngroups))
-    elif dataset_name == 'PAMAP2':
+    elif dataset_name == 'PAM':
         x = np.zeros((len(inputdict), 600))
         masking = np.zeros((len(inputdict), 600))
 
     delta = np.zeros((split, size))
-    if dataset_name == 'PAMAP2':
+    if dataset_name == 'PAM':
         timetable = np.zeros(600)
     else:
         timetable = np.zeros(grouped_data.ngroups)
@@ -97,24 +78,14 @@ def df_to_x_m_d(df, inputdict, size, id_posistion, split, dataset_name='P12'):
     s_dataset = np.zeros((3, split, size))
 
     if grouped_data.ngroups > size:
-
         # fill the x and masking vectors
         if dataset_name == 'P12':
             pre_time = pd.to_timedelta(0)
-        elif dataset_name == 'P19' or dataset_name == 'eICU' or dataset_name == 'PAMAP2':
+        elif dataset_name == 'P19' or dataset_name == 'eICU' or dataset_name == 'PAM':
             pre_time = 0
 
         t = 0
-        # if dataset_name == 'P12':
-        #     t = 0
-        # elif dataset_name == 'P19' or 'eICU':
-        #     t = -1
         for row_index, value in df.iterrows():
-
-            # t = colum, time frame
-            # agg_no = row, variable
-
-            #print(value)
             if isinstance(value.Parameter, str) or (isinstance(value.Parameter, float) and not math.isnan(value.Parameter)):
                 agg_no = inputdict[value.Parameter]
 
@@ -124,18 +95,11 @@ def df_to_x_m_d(df, inputdict, size, id_posistion, split, dataset_name='P12'):
                 t += 1
                 if dataset_name == 'P12':
                     timetable[t] = timedelta_to_day_figure(value.Time)
-                elif dataset_name == 'P19' or dataset_name == 'eICU' or dataset_name == 'PAMAP2':
+                elif dataset_name == 'P19' or dataset_name == 'eICU' or dataset_name == 'PAM':
                     timetable[t] = value.Time
 
-            #print('agg_no : {}\t t : {}\t value : {}'.format(agg_no, t, value.Value))
             x[agg_no, t] = value.Value
             masking[agg_no, t] = 1
-
-        # # generate random index array
-        # ran_index = np.random.choice(grouped_data.ngroups, size=size, replace=False)
-        # ran_index.sort()
-        # ran_index[0] = 0
-        # ran_index[size-1] = grouped_data.ngroups-1
 
         # generate index that has most parameters and first/last one.
         ran_index = grouped_data.count()
@@ -147,31 +111,24 @@ def df_to_x_m_d(df, inputdict, size, id_posistion, split, dataset_name='P12'):
         ran_index[0] = 0
         ran_index[size-1] = grouped_data.ngroups-1
 
-        #print(ran_index)
-
         # take id for outcome comparing
         id = x[id_posistion, 0]
 
-        # remove unnesserly parts(rows)
         x = x[:split, :]
         masking = masking[:split, :]
 
-        # coulme(time) sampling
         x_sample = np.zeros((split, size))
         m_sample = np.zeros((split, size))
         time_sample = np.zeros(size)
 
         t_x_sample = x_sample.T
         t_marsking = m_sample.T
-        #t_time = t_sample.T
 
         t_x = x.T
         t_m = masking.T
-        #t_t = t.T
 
         it = np.nditer(ran_index, flags=['f_index'])
         while not it.finished:
-            #print('it.index = {}, it[0] = {}, ran_index = {}'.format(it.index, it[0], ran_index[it.index]))
             t_x_sample[it.index] = t_x[it[0]]
             t_marsking[it.index] = t_m[it[0]]
             time_sample[it.index] = timetable[it[0]]
@@ -181,15 +138,8 @@ def df_to_x_m_d(df, inputdict, size, id_posistion, split, dataset_name='P12'):
         masking = m_sample
         timetable = time_sample
 
-        # # normalize the X
-        # nor_x = x/max_input[:, np.newaxis]
-
         # fill the delta vectors
         for index, value in np.ndenumerate(masking):
-
-            # index[0] = row, agg
-            # index[1] = col, time
-
             if index[1] == 0:
                 delta[index[0], index[1]] = 0
             elif masking[index[0], index[1]-1] == 0:
@@ -198,20 +148,14 @@ def df_to_x_m_d(df, inputdict, size, id_posistion, split, dataset_name='P12'):
                 delta[index[0], index[1]] = timetable[index[1]] - timetable[index[1]-1]
 
     else:
-
         # fill the x and masking vectors
         if dataset_name == 'P12':
             pre_time = pd.to_timedelta(0)
-        elif dataset_name == 'P19' or dataset_name == 'eICU' or dataset_name == 'PAMAP2':
+        elif dataset_name == 'P19' or dataset_name == 'eICU' or dataset_name == 'PAM':
             pre_time = 0
 
         t = 0
         for row_index, value in df.iterrows():
-
-            # t = colum, time frame
-            # agg_no = row, variable
-
-            #print(value)
             if isinstance(value.Parameter, str) or (isinstance(value.Parameter, float) and not math.isnan(value.Parameter)):
                 agg_no = inputdict[value.Parameter]
 
@@ -221,17 +165,15 @@ def df_to_x_m_d(df, inputdict, size, id_posistion, split, dataset_name='P12'):
                 t += 1
                 if dataset_name == 'P12':
                     timetable[t] = timedelta_to_day_figure(value.Time)
-                elif dataset_name == 'P19' or dataset_name == 'eICU' or dataset_name == 'PAMAP2':
+                elif dataset_name == 'P19' or dataset_name == 'eICU' or dataset_name == 'PAM':
                     timetable[t] = value.Time
 
-            #print('agg_no : {}\t t : {}\t value : {}'.format(agg_no, t, value.Value))
             x[agg_no, t] = value.Value
             masking[agg_no, t] = 1
 
         # take id for outcome comparing
         id = x[id_posistion, 0]
 
-        # remove unnesserly parts(rows)
         x = x[:split, :]
         masking = masking[:split, :]
 
@@ -239,15 +181,8 @@ def df_to_x_m_d(df, inputdict, size, id_posistion, split, dataset_name='P12'):
         masking = np.pad(masking, ((0,0), (size-grouped_data.ngroups, 0)), 'constant')
         timetable = np.pad(timetable, (size-grouped_data.ngroups, 0), 'constant')
 
-        # # normalize the X
-        # nor_x = x/max_input[:, np.newaxis]
-
         # fill the delta vectors
         for index, value in np.ndenumerate(masking):
-
-            # index[0] = row, agg
-            # index[1] = col, time
-
             if index[1] == 0:
                 delta[index[0], index[1]] = 0
             elif masking[index[0], index[1]-1] == 0:
@@ -256,7 +191,7 @@ def df_to_x_m_d(df, inputdict, size, id_posistion, split, dataset_name='P12'):
                 delta[index[0], index[1]] = timetable[index[1]] - timetable[index[1]-1]
 
     all_x = np.concatenate((all_x, x), axis=1)
-    all_x = all_x[:,1:]
+    all_x = all_x[:, 1:]
 
     s_dataset[0] = x
     s_dataset[1] = masking
@@ -297,12 +232,10 @@ def get_var(x):
     return x_var
 
 
-# dataset shape : (4000, 3, 33, 49)
 def dataset_normalize(dataset, mean, std):
     for i in range(dataset.shape[0]):
         dataset[i][0] = (dataset[i][0] - mean[:, None])
         dataset[i][0] = dataset[i][0]/std[:, None]
-
     return dataset
 
 
@@ -316,19 +249,9 @@ def normalize_chk(dataset):
     std = get_std(all_x_add)
     var = get_var(all_x_add)
 
-    print('mean')
-    print(mean)
-    print('median')
-    print(median)
-    print('std')
-    print(std)
-    print('var')
-    print(var)
-
     return mean, median, std, var
 
 
-# only check In-hospital_death
 def df_to_y1(df):
     output = df.values
     output = output[:, 5:]  # for mortality
@@ -336,12 +259,11 @@ def df_to_y1(df):
     # # for LoS
     # output = output[:, 3]
     # output = np.array(list(map(lambda los: 0 if los <= 3 else 1, output)))[..., np.newaxis]
-
     return output
 
 
 if __name__ == '__main__':
-    dataset_name = 'P12'  # possible values: 'P12', 'P19', 'eICU', 'PAMAP2'
+    dataset_name = 'P12'  # possible values: 'P12', 'P19', 'eICU', 'PAM'
     print('Dataset used: ', dataset_name)
 
     if dataset_name == 'P12':
@@ -420,38 +342,24 @@ if __name__ == '__main__':
 
             inputs = df_to_inputs(df=df, inputdict=inputdict, inputs=inputs)
 
-        print(inputs[0][0])
-
         # save inputs just in case
         np.save('saved/inputs.npy', inputs, allow_pickle=True)
         loaded_inputs = np.load('saved/inputs.npy', allow_pickle=True)
-        print(loaded_inputs[0][0])
-
 
         # make input items list
         input_columns = list(inputdict.keys())
 
-        # remove two overlaped items
-        # "TroponinI" : 27, #temp
-        # "TroponinT" : 28, #temp
-
         input_columns.remove("TroponinI")
         input_columns.remove("TroponinT")
-        print(input_columns)
-        print(len(input_columns))
-
 
         desc = describe(loaded_inputs, input_columns, inputdict, hist=False)
         desc = np.asarray(desc)
         print(desc.shape)
 
-        # save desc
         # 0: count, 1: min, 2: max, 3: mean, 4: median, 5: std, 6: var
         np.save('saved/desc.npy', desc)
         loaded_desc = np.load('saved/desc.npy')
 
-
-        # def df_to_x_m_d(df, inputdict, mean, std, size, id_posistion, split):
         size = 49  # steps ~ from the paper
         id_posistion = 37
         input_length = 33  # input variables ~ from the paper
@@ -463,7 +371,7 @@ if __name__ == '__main__':
             df = pd.read_csv(inputpath_1 + filename, header=0, parse_dates=['Time'], date_parser=timeparser)
             s_dataset, all_x, id = df_to_x_m_d(df=df, inputdict=inputdict, size=size, id_posistion=id_posistion, split=input_length)
 
-            dataset = np.concatenate((dataset, s_dataset[np.newaxis, :,:,:]))
+            dataset = np.concatenate((dataset, s_dataset[np.newaxis, :, :, :]))
             all_x_add = np.concatenate((all_x_add, all_x), axis=1)
 
         for filename in os.listdir(inputpath_2):
@@ -482,37 +390,20 @@ if __name__ == '__main__':
             dataset = np.concatenate((dataset, s_dataset[np.newaxis, :, :, :]))
             all_x_add = np.concatenate((all_x_add, all_x), axis=1)
 
-
-        dataset = dataset[1:, :,:,:]
-        # (total datasets, kind of data(x, masking, and delta), input length, num of varience)
-        # (4000, 3, 33, 49)
-        print(dataset.shape)
-        print(dataset[0].shape)
-        print(dataset[0][0][0])
-
-        print(all_x_add.shape)
+        dataset = dataset[1:, :, :, :]
         all_x_add = all_x_add[:, 1:]
-        print(all_x_add.shape)
 
         train_proportion = 0.8
         train_index = int(all_x_add.shape[1] * train_proportion)
         train_x = all_x_add[:, :train_index]
-        print(train_x.shape)
-
 
         x_mean = get_mean(train_x)
-        print(x_mean)
-        print(len(x_mean))
-
         x_std = get_std(train_x)
-        print(x_std)
-        print(len(x_std))
 
         x_mean = np.asarray(x_mean)
         x_std = np.asarray(x_std)
 
         dataset = dataset_normalize(dataset=dataset, mean=x_mean, std=x_std)
-        print(dataset[0][0][0])
 
         nor_mean, nor_median, nor_std, nor_var = normalize_chk(dataset)
 
@@ -544,7 +435,6 @@ if __name__ == '__main__':
 
         inputdict = {label: i for i, label in enumerate(all_labels)}
 
-        # prepare empty list to put data
         inputs = [[] for i in range(len(inputdict))]
         i = 0
         for patient in data:
@@ -578,8 +468,6 @@ if __name__ == '__main__':
 
         # make input items list
         input_columns = list(inputdict.keys())
-        print(input_columns)
-        print(len(input_columns))
 
         size = 49  # steps ~ from the paper
         id_posistion = 37  # not used
@@ -616,34 +504,21 @@ if __name__ == '__main__':
             dataset = np.concatenate((dataset, s_dataset[np.newaxis, :, :, :]))
             all_x_add = np.concatenate((all_x_add, all_x), axis=1)
 
-        dataset = dataset[1:, :,:,:]
-        # (total datasets, kind of data(x, masking, and delta), input length, num of varience)
-        print(dataset.shape)
-        print(dataset[0].shape)
-        print(dataset[0][0][0])
+        dataset = dataset[1:, :, :, :]
 
-        print(all_x_add.shape)
         all_x_add = all_x_add[:, 1:]
-        print(all_x_add.shape)
 
         train_proportion = 0.8
         train_index = int(all_x_add.shape[1] * train_proportion)
         train_x = all_x_add[:, :train_index]
-        print(train_x.shape)
 
         x_mean = get_mean(train_x)
-        print(x_mean)
-        print(len(x_mean))
-
         x_std = get_std(train_x)
-        print(x_std)
-        print(len(x_std))
 
         x_mean = np.asarray(x_mean)
         x_std = np.asarray(x_std)
 
         dataset = dataset_normalize(dataset=dataset, mean=x_mean, std=x_std)
-        print(dataset[0][0][0])
         dataset = dataset[:, :, :-1, :]
 
         nor_mean, nor_median, nor_std, nor_var = normalize_chk(dataset)
@@ -653,7 +528,6 @@ if __name__ == '__main__':
         np.save('saved/P19_dataset.npy', dataset)
 
         t_dataset = np.load('saved/P19_dataset.npy')
-        print(t_dataset.shape)
 
         # labels
         y1_outcomes = np.load('../../P19data/processed_data/arr_outcomes_6.npy', allow_pickle=True)
@@ -701,8 +575,6 @@ if __name__ == '__main__':
 
         # make input items list
         input_columns = list(inputdict.keys())
-        print(input_columns)
-        print(len(input_columns))
 
         size = 49  # steps ~ from the paper
         id_posistion = 0  # not used
@@ -740,33 +612,21 @@ if __name__ == '__main__':
             all_x_add = np.concatenate((all_x_add, all_x), axis=1)
 
         dataset = dataset[1:, :, :, :]
-        # (total datasets, kind of data(x, masking, and delta), input length, num of varience)
-        print(dataset.shape)
-        print(dataset[0].shape)
-        print(dataset[0][0][0])
 
-        print(all_x_add.shape)
         all_x_add = all_x_add[:, 1:]
-        print(all_x_add.shape)
 
         train_proportion = 0.8
         train_index = int(all_x_add.shape[1] * train_proportion)
         train_x = all_x_add[:, :train_index]
-        print(train_x.shape)
 
         x_mean = get_mean(train_x)
-        print(x_mean)
-        print(len(x_mean))
 
         x_std = get_std(train_x)
-        print(x_std)
-        print(len(x_std))
 
         x_mean = np.asarray(x_mean)
         x_std = np.asarray(x_std)
 
         dataset = dataset_normalize(dataset=dataset, mean=x_mean, std=x_std)
-        print(dataset[0][0][0])
 
         nor_mean, nor_median, nor_std, nor_var = normalize_chk(dataset)
 
@@ -782,8 +642,8 @@ if __name__ == '__main__':
         y1_outcomes = y1_outcomes[..., np.newaxis]
         np.save('saved/' + dataset_name + '_y1_out', y1_outcomes)
 
-    elif dataset_name == 'PAMAP2':
-        data = np.load('../../PAMAP2data/processed_data/PTdict_list.npy', allow_pickle=True)
+    elif dataset_name == 'PAM':
+        data = np.load('../../PAMdata/processed_data/PTdict_list.npy', allow_pickle=True)
 
         n_sensors = 17
         all_labels = np.array(['sensor_%d' % i for i in range(n_sensors)])
@@ -815,14 +675,12 @@ if __name__ == '__main__':
             inputs = df_to_inputs(df=df, inputdict=inputdict, inputs=inputs)
 
         # save inputs just in case
-        np.save('saved/PAMAP2_inputs.npy', inputs, allow_pickle=True)
+        np.save('saved/PAM_inputs.npy', inputs, allow_pickle=True)
 
-        loaded_inputs = np.load('saved/PAMAP2_inputs.npy', allow_pickle=True)
+        loaded_inputs = np.load('saved/PAM_inputs.npy', allow_pickle=True)
 
         # make input items list
         input_columns = list(inputdict.keys())
-        print(input_columns)
-        print(len(input_columns))
 
         size = 49  # steps ~ from the paper
         id_posistion = 0  # not used
@@ -859,44 +717,31 @@ if __name__ == '__main__':
             all_x_add = np.concatenate((all_x_add, all_x), axis=1)
 
         dataset = dataset[1:, :, :, :]
-        # (total datasets, kind of data(x, masking, and delta), input length, num of varience)
-        print(dataset.shape)
-        print(dataset[0].shape)
-        print(dataset[0][0][0])
 
-        print(all_x_add.shape)
         all_x_add = all_x_add[:, 1:]
-        print(all_x_add.shape)
 
         train_proportion = 0.8
         train_index = int(all_x_add.shape[1] * train_proportion)
         train_x = all_x_add[:, :train_index]
-        print(train_x.shape)
 
         x_mean = get_mean(train_x)
-        print(x_mean)
-        print(len(x_mean))
-
         x_std = get_std(train_x)
-        print(x_std)
-        print(len(x_std))
 
         x_mean = np.asarray(x_mean)
         x_std = np.asarray(x_std)
 
         dataset = dataset_normalize(dataset=dataset, mean=x_mean, std=x_std)
-        print(dataset[0][0][0])
 
         nor_mean, nor_median, nor_std, nor_var = normalize_chk(dataset)
 
-        np.save('saved/PAMAP2_x_mean_aft_nor', nor_mean)
-        np.save('saved/PAMAP2_x_median_aft_nor', nor_median)
-        np.save('saved/PAMAP2_dataset.npy', dataset)
+        np.save('saved/PAM_x_mean_aft_nor', nor_mean)
+        np.save('saved/PAM_x_median_aft_nor', nor_median)
+        np.save('saved/PAM_dataset.npy', dataset)
 
-        t_dataset = np.load('saved/PAMAP2_dataset.npy')
+        t_dataset = np.load('saved/PAM_dataset.npy')
         print(t_dataset.shape)
 
         # labels
-        y1_outcomes = np.load('../../PAMAP2data/processed_data/arr_outcomes.npy', allow_pickle=True)
+        y1_outcomes = np.load('../../PAMdata/processed_data/arr_outcomes.npy', allow_pickle=True)
         np.save('saved/' + dataset_name + '_y1_out', y1_outcomes)
 

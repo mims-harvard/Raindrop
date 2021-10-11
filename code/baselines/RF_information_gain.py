@@ -6,7 +6,7 @@ from sklearn.metrics import classification_report
 from sklearn.preprocessing import scale
 
 
-dataset = 'PAMAP2'     # possible values: 'P12', 'P19', 'eICU', 'PAMAP2'
+dataset = 'PAM'     # possible values: 'P12', 'P19', 'eICU', 'PAM'
 print('Dataset used: ', dataset)
 
 if dataset == 'P12':
@@ -21,14 +21,14 @@ elif dataset == 'eICU':
     labels_path = '../../eICUdata/processed_data/arr_outcomes.npy'
     labels_names_path = '../../eICUdata/processed_data/eICU_ts_vars.npy'
     features_path = '../../eICUdata/processed_data/PTdict_list.npy'
-elif dataset == 'PAMAP2':
-    labels_path = '../../PAMAP2data/processed_data/arr_outcomes.npy'
+elif dataset == 'PAM':
+    labels_path = '../../PAMdata/processed_data/arr_outcomes.npy'
     labels_names_path = ''   # not applicable
-    features_path = '../../PAMAP2data/processed_data/PTdict_list.npy'
+    features_path = '../../PAMdata/processed_data/PTdict_list.npy'
 
 labels = np.load(labels_path, allow_pickle=True)
-if dataset == 'P12' or dataset == 'P19' or dataset == 'PAMAP2':
-    labels_np = labels[:, -1].reshape([-1, 1])  # shape  (11988, 1)
+if dataset == 'P12' or dataset == 'P19' or dataset == 'PAM':
+    labels_np = labels[:, -1].reshape([-1, 1])
 elif dataset == 'eICU':
     labels_np = labels[..., np.newaxis]
 
@@ -39,14 +39,11 @@ if dataset == 'P12' or dataset == 'P19' or dataset == 'eICU':
     feature_np = np.zeros((len(features), T, F))
     for i in range(len(features)):
         feature_np[i] = features[i]['arr']
-    print(feature_np.shape, labels_np.shape)
-elif dataset == 'PAMAP2':
+elif dataset == 'PAM':
     feature_np = features
 
 n_sensors = feature_np.shape[-1]
-print('n-sensors: {}'.format(n_sensors))
 AUC_list = []
-# select the first feature, 11988 samples, 215 row, each row has 36 features
 for f in range(n_sensors):
     feature_ji = f
 
@@ -59,21 +56,18 @@ for f in range(n_sensors):
     train_data = data_fea_label[: int(0.8*n_seg)]
     test_data = data_fea_label[int(0.8*n_seg):]
 
-    no_fea_long = train_data.shape[-1] - 1  # here is - 2, because has two IDs
+    no_fea_long = train_data.shape[-1] - 1
 
     np.random.shuffle(train_data)
     np.random.shuffle(test_data)
-    # print(train_data.shape, test_data.shape)
 
     feature_train = train_data[:, :no_fea_long]
     feature_test = test_data[:, :no_fea_long]
-    """Normalization"""
     feature_train = scale(feature_train, axis=0)
     feature_test = scale(feature_test, axis=0)
 
     label_train = train_data[:, no_fea_long:no_fea_long + 1].squeeze(-1)
     label_test = test_data[:, no_fea_long:no_fea_long + 1].squeeze(-1)
-    # random forest
     rf = RandomForestClassifier(n_estimators=10).fit(feature_train, label_train)
 
     rf_acc = rf.score(feature_test, label_test)
@@ -83,20 +77,20 @@ for f in range(n_sensors):
 
     if dataset == 'P12' or dataset == 'P19' or dataset == 'eICU':
         auc_score = roc_auc_score(label_test, rf_result)
-    elif dataset == 'PAMAP2':
+    elif dataset == 'PAM':
         # actually accuracy of the predictions, since it's multiclass and we don't have probabilities for AUC
         auc_score = rf_acc
 
     print('Feature:', feature_ji, '| ACC: %.4f' % rf_acc, '| AUC: %.4f' % auc_score)
     AUC_list.append(auc_score)
 
-sorted_sensor = np.argsort(np.array(AUC_list))  # sensor importance ascendingly ordered
+sorted_sensor = np.argsort(np.array(AUC_list))
 sensor_descending = sorted_sensor[::-1]
 print(sensor_descending)
 
 if dataset == 'P12' or dataset == 'P19' or dataset == 'eICU':
     labels_names = np.load(labels_names_path, allow_pickle=True)
-elif dataset == 'PAMAP2':
+elif dataset == 'PAM':
     labels_names = ['sensor_%s' % str(i) for i in range(17)]
 
 indices_with_names = np.array([[ind, labels_names[ind]] for ind in sensor_descending])
