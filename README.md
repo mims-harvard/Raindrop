@@ -1,29 +1,18 @@
-# GRAPH-GUIDED NETWORK FOR IRREGULARLY SAMPLED MULTIVARIATE TIME SERIES
+<!-- # GRAPH-GUIDED NETWORK FOR IRREGULARLY SAMPLED MULTIVARIATE TIME SERIES -->
+# Graph-Guided Network For Irregularly Sampled Multivariate Time Series
 
 ## Overview
 
-This repository contains python code with datasets to run Raindrop algorithm. Raindrop is a 
-graph-guided network for learning representations of 
-irregularly sampled multivariate time series. 
-We use Raindrop to classify time series of three healthcare and 
-human activity datasets in four different settings. 
+This repository contains processed datasets and implementation code for manuscript *Graph-Guided Network For Irregularly Sampled Multivariate Time Series*.
+We propose, Raindrop, a graph-guided network, to learn representations of irregularly sampled multivariate time series. 
+We use Raindrop to classify time series of three healthcare and human activity datasets in four different settings. 
 
 
 ## Key idea of Raindrop
 
-Raindrop is an approach, intended for learning representations of irregular multivariate time series, 
-which models dependencies between sensors using neural message passing and temporal self attention.
-Raindrop represents every sample (e.g., patient) as a graph, where nodes indicate
-sensors and edges represent dependencies between them. 
-Raindrop takes samples as input, each sample
-containing multiple sensors and each sensor consisting of
-irregularly recorded observations (e.g., in clinical data, an
-individual patient’s state of health, recorded at irregular
-time intervals with different subsets of sensors observed
-at different times). Raindrop model is inspired by the
-idea of raindrops falling into a pool at sequential but nonuniform
-time intervals and thereby creating ripple effects
-that propagate across the pool.
+The proposed Raindrop models dependencies between sensors using neural message passing and temporal self attention.
+Raindrop represents every sample (e.g., patient) as a graph, where nodes indicate sensors and edges represent dependencies between them. 
+Raindrop takes samples as input, each sample containing multiple sensors and each sensor consisting of irregularly recorded observations (e.g., in clinical data, an individual patient’s state of health, recorded at irregular time intervals with different subsets of sensors observed at different times). Raindrop model is inspired by the idea of raindrops falling into a pool at sequential but nonuniform time intervals and thereby creating ripple effects that propagate across the pool.
 
 ![Raindrop idea](images/fig1.png "Idea of Raindrop.")
 
