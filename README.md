@@ -34,6 +34,7 @@ while paying distinctive attentions to different observations. We independently 
 
 <br />
 ## Experimental settings
+
 We evaluate our model in comparison with the baselines in four different settings:
 
 **Setting 1: Classic time series classification.** We randomly split the dataset into training
