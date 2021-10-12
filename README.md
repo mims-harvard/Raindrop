@@ -14,7 +14,11 @@ The proposed Raindrop models dependencies between sensors using neural message p
 Raindrop represents every sample (e.g., patient) as a graph, where nodes indicate sensors and edges represent dependencies between them. 
 Raindrop takes samples as input, each sample containing multiple sensors and each sensor consisting of irregularly recorded observations (e.g., in clinical data, an individual patient’s state of health, recorded at irregular time intervals with different subsets of sensors observed at different times). Raindrop model is inspired by the idea of raindrops falling into a pool at sequential but nonuniform time intervals and thereby creating ripple effects that propagate across the pool.
 
-![Raindrop idea](images/fig1.png "Idea of Raindrop.")
+![Raindrop idea]
+<!-- (images/fig1.png "Idea of Raindrop.") -->
+<p align="center">
+    <img src="images/fig1.png" width="800" align="center">
+</p>
 
 The main idea of Raindrop is to generate observation (a) and sensor (b) embeddings. Calculated sensor
 embeddings then serve as the basis for sample embeddings that can fed into a downstream task 
