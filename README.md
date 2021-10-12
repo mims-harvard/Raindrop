@@ -30,9 +30,9 @@ such as classification.
 **(b)** An illustration of generating sensor embedding. We apply the message
 passing in (a) to all timestamps and produce corresponding observation embeddings. 
 We aggregate arbitrary number of observation embeddings into a fixed-length sensor embedding,
-while paying distinctive attentions to different observations. We independently apply the processing procedure to all sensors.
+while paying distinctive attentions to different observations. We independently apply the sensor-level processing procedure to all sensors.
 
-<br />
+
 ## Experimental settings
 
 We evaluate our model in comparison with the baselines in four different settings:
