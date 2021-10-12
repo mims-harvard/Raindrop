@@ -12,15 +12,15 @@ We use Raindrop to classify time series of three healthcare and human activity d
 
 The proposed Raindrop models dependencies between sensors using neural message passing and temporal self attention.
 Raindrop represents every sample (e.g., patient) as a graph, where nodes indicate sensors and edges represent dependencies between them. 
-Raindrop takes samples as input, each sample containing multiple sensors and each sensor consisting of irregularly recorded observations (e.g., in clinical data, an individual patient’s state of health, recorded at irregular time intervals with different subsets of sensors observed at different times). Raindrop model is inspired by the idea of raindrops falling into a pool at sequential but nonuniform time intervals and thereby creating ripple effects that propagate across the pool.
+Raindrop takes samples as input, each sample containing multiple sensors and each sensor consisting of irregularly recorded observations (e.g., in clinical data, an individual patient’s state of health, recorded at irregular time intervals with different subsets of sensors observed at different times). Raindrop model is inspired by the idea of raindrops falling into a pool at sequential but nonuniform time intervals and thereby creating ripple effects that propagate across the pool (as shown in the following figure).
 
-![Raindrop idea]
+<!-- ![Raindrop idea] -->
 <!-- (images/fig1.png "Idea of Raindrop.") -->
 <p align="center">
-    <img src="images/fig1.png" width="800" align="center">
+    <img src="images/fig1.png" width="600" align="center">
 </p>
 
-The main idea of Raindrop is to generate observation (a) and sensor (b) embeddings. Calculated sensor
+The main idea of Raindrop is to generate observation embeddings (a) and sensor embeddings (b). Calculated sensor
 embeddings then serve as the basis for sample embeddings that can fed into a downstream task 
 such as classification. 
 
@@ -32,8 +32,7 @@ message to neighbor sensors, and generates observation embedding through inter-s
 **(b)** An illustration of generating sensor embedding. We apply the message
 passing in (a) to all timestamps and produce corresponding observation embeddings. 
 We aggregate arbitrary number of observation embeddings into a fixed-length sensor embedding,
-while paying distinctive attentions to different observations. 
-We independently apply the processing procedure to all sensors.
+while paying distinctive attentions to different observations. We independently apply the processing procedure to all sensors.
 
 <br />
 We evaluate our model in comparison with the baselines in four different settings:
