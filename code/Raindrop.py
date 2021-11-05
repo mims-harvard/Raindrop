@@ -1,4 +1,4 @@
-
+"""Here is an initial version of the proposed Raindrop model. The scripts will be further refined in the future, after paper acceptance. """
 wandb = False
 
 if wandb:
