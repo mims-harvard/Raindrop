@@ -10,7 +10,7 @@
 
 This repository contains processed datasets and implementation code for manuscript *Graph-Guided Network For Irregularly Sampled Multivariate Time Series*.
 We propose, Raindrop, a graph-guided neural network, to learn representations of irregularly sampled multivariate time series. 
-We evaluate Raindrop on three healthcare and human activity datasets in three challenging settings including a leave-sensor-out setup. 
+We evaluate Raindrop on three healthcare and human activity datasets in four challenging settings (three in Section 4.1 and one in Appendix of the paper) including a leave-sensor-out setup. 
 Please see our paper ([arxiv](https://arxiv.org/pdf/2110.05357.pdf), [ICLR'22](https://openreview.net/forum?id=Kwm8I7dU-l5)) for more details. 
 
 
@@ -37,6 +37,7 @@ such as classification.
 passing in (a) to all timestamps and produce corresponding observation embeddings. 
 We aggregate arbitrary number of observation embeddings into a fixed-length sensor embedding,
 while paying distinctive attentions to different observations. We independently apply the sensor-level processing procedure to all sensors.
+**(c)** Raindrop updates edge weight based on pervious layer's edge weightand the learned inter-sensor attention weights in all time steps. We explicitly show layer index *l* as multiple layers are involved.
 
 
 ## Experimental settings
