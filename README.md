@@ -2,7 +2,7 @@
 # Graph-Guided Network For Irregularly Sampled Multivariate Time Series
 
 #### Authors: [Xiang Zhang](http://xiangzhang.info/) (xiang_zhang@hms.harvard.edu), [Marko Zeman]()(marko.zeman@fri.uni-lj.si), <br/>
-[Theodoros Tsiligkaridis]()(ttsili@ll.mit.edu), [Marinka Zitnik](https://zitniklab.hms.harvard.edu/) (marinka@hms.harvard.edu)
+####  [Theodoros Tsiligkaridis]()(ttsili@ll.mit.edu), [Marinka Zitnik](https://zitniklab.hms.harvard.edu/) (marinka@hms.harvard.edu)
 
 #### [Project website](https://zitniklab.hms.harvard.edu/projects/Raindrop)
 
