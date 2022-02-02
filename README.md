@@ -1,11 +1,16 @@
 <!-- # GRAPH-GUIDED NETWORK FOR IRREGULARLY SAMPLED MULTIVARIATE TIME SERIES -->
 # Graph-Guided Network For Irregularly Sampled Multivariate Time Series
 
+#### Authors: [Xiang Zhang](http://xiangzhang.info/) (xiang_zhang@hms.harvard.edu), [Marko Zeman](marko.zeman@fri.uni-lj.si), [Theodoros Tsiligkaridis](ttsili@ll.mit.edu), [Marinka Zitnik](https://zitniklab.hms.harvard.edu/) (marinka@hms.harvard.edu)
+
+#### [Project website](https://zitniklab.hms.harvard.edu/projects/Raindrop)
+
 ## Overview
 
 This repository contains processed datasets and implementation code for manuscript *Graph-Guided Network For Irregularly Sampled Multivariate Time Series*.
 We propose, Raindrop, a graph-guided network, to learn representations of irregularly sampled multivariate time series. 
 We use Raindrop to classify time series of three healthcare and human activity datasets in four different settings. 
+Please see our paper ([arxiv](https://arxiv.org/pdf/2110.05357.pdf), [ICLR'22](https://openreview.net/forum?id=Kwm8I7dU-l5)) for more details. 
 
 
 ## Key idea of Raindrop
@@ -220,6 +225,23 @@ Due to size limitation in GitHub, the following large data files are not uploade
 - P19data/processed_data/PT_dict_list_6.npy
 - PAMdata/processed_data/AR_8p_8c.mat
 - PAMdata/processed_data/PTdict_list.npy
+
+
+## Citing
+
+If you find *Raindrop* useful for your research, please consider citing this paper:
+```
+@inproceedings{zhang2021graph,
+Title = {Graph-Guided Network For Irregularly Sampled Multivariate Time Series},
+author = {Zhang, Xiang and Zeman, Marko and Tsiligkaridis, Theodoros and Zitnik, Marinka},
+booktitle = {ICLR},
+year      = {2022}
+}
+```
+
+## Miscellaneous
+
+Please send any questions you might have about the code and/or the algorithm to <xiang_zhang@hms.harvard.edu>.
 
 ## License
 
