@@ -461,6 +461,25 @@ def evaluate_standard(model, P_tensor, P_time_tensor, P_static_tensor, batch_siz
     return out
 
 
+def evaluate_MTGNN(model, P_tensor, P_static_tensor, static=1):
+    P_tensor = P_tensor.cuda()
+
+    P_tensor = torch.permute(P_tensor, (1, 0, 2))
+    P_tensor = torch.unsqueeze(P_tensor, dim=1)
+    P_tensor = P_tensor.transpose(2, 3)
+
+    if static is None:
+        P_static_tensor = None
+    else:
+        P_static_tensor = P_static_tensor.cuda()
+
+    out = model.forward(P_tensor, P_static_tensor)
+    return out
+
+
+
+
+
 # Adam using warmup
 class NoamOpt:
     "Optim wrapper that implements rate."
