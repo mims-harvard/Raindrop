@@ -169,6 +169,12 @@ cd code/baselines/mTAND
 python mTAND_baseline.py
 ```
 
+- MTGNN
+```
+cd code/baselines
+python MTGNN_baseline.py
+```
+
 All algorithms can be run with named arguments, which allow the use of different settings from the paper:
 - *dataset*: Choose which dataset to use. Options: [P12, P19, PAM].
 - *withmissingratio*: If True, missing ratio of sensors in test set ranges from 0.1 to 0.5. 
