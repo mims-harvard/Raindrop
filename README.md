@@ -236,7 +236,7 @@ If you find *Raindrop* useful for your research, please consider citing this pap
 @inproceedings{zhang2021graph,
 Title = {Graph-Guided Network For Irregularly Sampled Multivariate Time Series},
 author = {Zhang, Xiang and Zeman, Marko and Tsiligkaridis, Theodoros and Zitnik, Marinka},
-booktitle = {ICLR},
+booktitle = {International Conference on Learning Representations, ICLR},
 year      = {2022}
 }
 ```
