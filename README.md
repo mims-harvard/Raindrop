@@ -213,7 +213,7 @@ test on aged 65 or more.
 python GRU-D_baseline.py --dataset P19 --withmissingratio False --splittype age --feature_removal_level no_removal --reverse False
 ```
 ### Large size data files
-Due to size limitation in GitHub, the following large data files are not uploaded to this repository yet. We will store these large size data into an accessable platform (such as *figshare*) and share the download link here after the acceptance of our paper. 
+Due to size limitation in GitHub, the following large data files are not uploaded to this repository yet. We will store these large size data into an accessable platform (such as *figshare*) and share the download link here soon. 
 - code/baselines/mTAND/P_list.npy
 - code/baselines/saved/dataset.npy
 - code/baselines/saved/inputs.npy
