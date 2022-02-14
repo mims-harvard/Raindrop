@@ -477,7 +477,38 @@ def evaluate_MTGNN(model, P_tensor, P_static_tensor, static=1):
     return out
 
 
+def evaluate_DGM2(model, P_tensor, P_static_tensor, static=1):
+    # suppose P_time is equal in all patients
+    P_time = torch.arange(P_tensor.size()[0])
 
+    P_tensor = P_tensor.cuda()
+    P_tensor = torch.permute(P_tensor, (1, 0, 2))
+
+    if static is None:
+        P_static_tensor = None
+    else:
+        P_static_tensor = P_static_tensor.cuda()
+
+    out = model.forward(P_tensor, P_time, P_static_tensor)
+    return out
+
+
+def linspace_vector(start, end, n_points):
+    # start is either one value or a vector
+    size = np.prod(start.size())
+
+    assert(start.size() == end.size())
+    if size == 1:
+        # start and end are 1d-tensors
+        res = torch.linspace(start, end, n_points)
+    else:
+        # start and end are vectors
+        res = torch.Tensor()
+        for i in range(0, start.size(0)):
+            res = torch.cat((res,
+                torch.linspace(start[i], end[i], n_points)),0)
+        res = torch.t(res.reshape(start.size(0), n_points))
+    return res
 
 
 # Adam using warmup

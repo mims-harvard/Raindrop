@@ -22,7 +22,7 @@ if wandb:
 
 from sklearn.metrics import roc_auc_score, classification_report, confusion_matrix, precision_score, recall_score, f1_score
 from sklearn.metrics import average_precision_score
-from models import MTGNN
+from models import ODEFunc, DiffeqSolver, GRU_unit_cluster, DGM2_O
 from utils_phy12 import *
 
 torch.manual_seed(1)
@@ -71,7 +71,30 @@ def one_hot_classes(a, num_classes):
     return np.squeeze(np.eye(num_classes)[a.reshape(-1)])
 
 
+def create_net(n_inputs, n_outputs, n_layers=0, n_units=10, nonlinear=nn.Tanh, add_softmax=False, dropout=0.0):
+    if n_layers >= 0:
+        layers = [nn.Linear(n_inputs, n_units)]
+        for i in range(n_layers):
+            layers.append(nonlinear())
+            layers.append(nn.Linear(n_units, n_units))
+            layers.append(nn.Dropout(p=dropout))
+
+        layers.append(nonlinear())
+        layers.append(nn.Linear(n_units, n_outputs))
+        if add_softmax:
+            layers.append(nn.Softmax(dim=-1))
+
+    else:
+        layers = [nn.Linear(n_inputs, n_outputs)]
+
+        if add_softmax:
+            layers.append(nn.Softmax(dim=-1))
+
+    return nn.Sequential(*layers)
+
+
 feature_removal_level = args.feature_removal_level   # possible values: 'sample', 'set'
+device = "cuda:0"
 
 if args.withmissingratio == True:
     missing_ratios = [0.1, 0.2, 0.3, 0.4, 0.5]
@@ -80,7 +103,7 @@ else:
 
 for missing_ratio in missing_ratios:
     num_epochs = 20
-    learning_rate = 0.0001
+    learning_rate = 0.001
 
     if dataset == 'P12':
         d_static = 9
@@ -278,16 +301,26 @@ for missing_ratio in missing_ratios:
 
             num_nodes = Ptrain_tensor.size()[2]
 
+            rec_ode_func = ODEFunc(
+                input_dim=10,
+                latent_dim=10,
+                ode_func_net=create_net(10, 10),
+                device=device).to(device)
+
+            z0_diffeq_solver = DiffeqSolver(10, rec_ode_func, "euler", 10, odeint_rtol=1e-3, odeint_atol=1e-4,
+                                            device=device)
+
+            gru_update = GRU_unit_cluster(10, num_nodes, n_units=10, device=device, use_mask=False, dropout=0.0)
+
             if dataset == 'P12' or dataset == 'P19' or dataset == 'eICU':
-                model = MTGNN(True, True, 2, num_nodes, torch.device('cuda:0'), num_static_features=Ptrain_static_tensor.size()[1],
-                              node_dim=Ptrain_tensor.size()[0], dilation_exponential=2, conv_channels=16, residual_channels=16, skip_channels=32,
-                              end_channels=64, seq_length=Ptrain_tensor.size()[0], in_dim=1, out_dim=1, layers=5, layer_norm_affline=False)
+                model = DGM2_O(10, num_nodes, 20, z0_diffeq_solver, z0_dim=10, n_gru_units=10, GRU_update=gru_update,
+                               device=device, use_mask=False, dropout=0.0, use_static=True,
+                               num_time_steps_and_static=(Ptrain_tensor.size()[0], Ptrain_static_tensor.size()[1]))
 
             elif dataset == 'PAM':
-                model = MTGNN(True, True, 2, num_nodes, torch.device('cuda:0'), num_static_features=0, node_dim=Ptrain_tensor.size()[0],
-                              dilation_exponential=2, conv_channels=16, residual_channels=16, skip_channels=32, end_channels=64,
-                              seq_length=Ptrain_tensor.size()[0], in_dim=1, out_dim=1, layers=5, layer_norm_affline=False)
-
+                model = DGM2_O(10, num_nodes, 20, z0_diffeq_solver, z0_dim=10, n_gru_units=10, GRU_update=gru_update,
+                               device=device, use_mask=False, dropout=0.0, use_static=False,
+                               num_time_steps_and_static=(Ptrain_tensor.size()[0], 0))
 
             model = model.cuda()
 
@@ -310,7 +343,7 @@ for missing_ratio in missing_ratios:
             expanded_idx_1 = np.concatenate([idx_1, idx_1, idx_1], axis=0)
             expanded_n1 = len(expanded_idx_1)
 
-            batch_size = 32
+            batch_size = 128
             if strategy == 1:
                 n_batches = 10
             elif strategy == 2:
@@ -355,8 +388,7 @@ for missing_ratio in missing_ratios:
 
                     lengths = torch.sum(Ptime > 0, dim=0)
 
-                    # outputs = evaluate_standard(model, P, Ptime, Pstatic, static=static_info)
-                    outputs = evaluate_MTGNN(model, P, Pstatic, static=static_info)
+                    outputs = evaluate_DGM2(model, P, Pstatic, static=static_info)
 
                     optimizer.zero_grad()
                     loss = criterion(outputs, y)
@@ -390,10 +422,10 @@ for missing_ratio in missing_ratios:
                         out_val_tensors = []
                         for n in range(n_batches):
                             if dataset == 'P12' or dataset == 'P19' or dataset == 'eICU':
-                                out_val_tensors.append(evaluate_MTGNN(model, Pval_tensor[:, n * batch_size: (n + 1) * batch_size, :],
+                                out_val_tensors.append(evaluate_DGM2(model, Pval_tensor[:, n * batch_size: (n + 1) * batch_size, :],
                                                    Pval_static_tensor[n * batch_size: (n + 1) * batch_size, :], static=static_info))
                             elif dataset == 'PAM':
-                                out_val_tensors.append(evaluate_MTGNN(model, Pval_tensor[:, n * batch_size: (n + 1) * batch_size, :],
+                                out_val_tensors.append(evaluate_DGM2(model, Pval_tensor[:, n * batch_size: (n + 1) * batch_size, :],
                                                                       None,static=static_info))
 
                         out_val = torch.cat(out_val_tensors, dim=0)
@@ -407,7 +439,7 @@ for missing_ratio in missing_ratios:
                             auc_val = roc_auc_score(yval, out_val[:, 1])
                             aupr_val = average_precision_score(yval, out_val[:, 1])
                         elif dataset == 'PAM':
-                            yval_int = np.int64(np.reshape(yval, (yval.shape[0],)))
+                            yval_int = np.int64(np.reshape(yval, (yval.shape[0], )))
                             auc_val = roc_auc_score(one_hot_classes(yval_int, n_classes), out_val)
                             aupr_val = average_precision_score(one_hot_classes(yval_int, n_classes), out_val)
 
@@ -433,17 +465,15 @@ for missing_ratio in missing_ratios:
             model.eval()
 
             with torch.no_grad():
-                # out_test = evaluate(model, Ptest_tensor, Ptest_time_tensor, Ptest_static_tensor, n_classes=n_classes, static=static_info).numpy()
-
                 n_batches = math.ceil(Ptest_tensor.size()[1] / batch_size)
 
                 out_test_tensors = []
                 for n in range(n_batches):
                     if dataset == 'P12' or dataset == 'P19' or dataset == 'eICU':
-                        out_test_tensors.append(evaluate_MTGNN(model, Ptest_tensor[:, n * batch_size: (n + 1) * batch_size, :],
+                        out_test_tensors.append(evaluate_DGM2(model, Ptest_tensor[:, n * batch_size: (n + 1) * batch_size, :],
                                                 Ptest_static_tensor[n * batch_size: (n + 1) * batch_size, :], static=static_info))
                     elif dataset == 'PAM':
-                        out_test_tensors.append(evaluate_MTGNN(model, Ptest_tensor[:, n * batch_size: (n + 1) * batch_size, :],
+                        out_test_tensors.append(evaluate_DGM2(model, Ptest_tensor[:, n * batch_size: (n + 1) * batch_size, :],
                                                                None, static=static_info))
                 out_test = np.array(torch.cat(out_test_tensors, dim=0).detach().cpu())
 
@@ -452,6 +482,7 @@ for missing_ratio in missing_ratios:
                 ypred = np.argmax(out_test, axis=1)
                 denoms = np.sum(np.exp(out_test), axis=1).reshape((-1, 1))
                 probs = np.exp(out_test) / denoms
+                probs = np.nan_to_num(probs, nan=0.0)
 
                 acc = np.sum(ytest.ravel() == ypred.ravel()) / ytest.shape[0]
 
@@ -510,8 +541,4 @@ for missing_ratio in missing_ratios:
 
     if wandb:
         wandb.finish()
-
-    # # save in numpy file
-    # np.save('./results/' + arch + '_phy12_setfunction.npy', [acc_vec, auprc_vec, auroc_vec])
-
 
