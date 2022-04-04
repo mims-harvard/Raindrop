@@ -83,6 +83,13 @@ one human activity dataset.
 <!-- The preprocessing scripts with data are available in folders *P19data*, *P12data* and *PAMdata*.  -->
 
 ### Processed data
+Download the processed datasets:
+
+**(1)** P19 (PhysioNet Sepsis Early Prediction Challenge 2019) https://doi.org/10.6084/m9.figshare.19514338.v1
+
+**(2)** P12 (PhysioNet Mortality Prediction Challenge 2012) https://doi.org/10.6084/m9.figshare.19514341.v1
+
+**(3)** PAM (PAMAP2 Physical Activity Monitoring) https://doi.org/10.6084/m9.figshare.19514347.v1
 
 We organize the well-processed and ready-ro-run data in the same way for three datasets. Next we introduce the files, taking *P12data* folder as an example.
 <!-- Let's look at the content of *P12data* folder, though, the structure is the same for all three folders with data.  -->
@@ -230,7 +237,7 @@ test on aged 65 or more.
 ```
 python GRU-D_baseline.py --dataset P19 --withmissingratio False --splittype age --feature_removal_level no_removal --reverse False
 ```
-### Large size data files
+<!-- ### Large size data files
 Due to size limitation in GitHub, the following large data files are not uploaded to this repository yet. We will store these large size data into an accessable platform (such as *figshare*) and share the download link here soon. 
 - code/baselines/mTAND/P_list.npy
 - code/baselines/saved/dataset.npy
@@ -244,7 +251,7 @@ Due to size limitation in GitHub, the following large data files are not uploade
 - P12data/processed_data/PTdict_list.npy
 - P19data/processed_data/PT_dict_list_6.npy
 - PAMdata/processed_data/AR_8p_8c.mat
-- PAMdata/processed_data/PTdict_list.npy
+- PAMdata/processed_data/PTdict_list.npy -->
 
 
 ## Citing
