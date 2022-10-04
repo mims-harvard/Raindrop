@@ -1,4 +1,3 @@
-<!-- # GRAPH-GUIDED NETWORK FOR IRREGULARLY SAMPLED MULTIVARIATE TIME SERIES -->
 # Graph-Guided Network For Irregularly Sampled Multivariate Time Series
 
 #### Authors: [Xiang Zhang](http://xiangzhang.info/) (xiang_zhang@hms.harvard.edu), [Marko Zeman](https://github.com/mims-harvard/Raindrop)(marko.zeman@fri.uni-lj.si), <br/>
@@ -268,7 +267,7 @@ year      = {2022}
 
 ## Miscellaneous
 
-Please send any questions you might have about the code and/or the algorithm to <xiang_zhang@hms.harvard.edu>.
+Please send any questions you might have about the code and/or the algorithm to <xiang.zhang@uncc.edu>.
 
 ## License
 
